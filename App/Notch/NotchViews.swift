@@ -104,7 +104,9 @@ struct PulseView: View {
     let model: NotchModel
 
     var body: some View {
-        if model.cameraRect.width > 0 {
+        if let level = model.pulseLevel {
+            VolumePulseView(model: model, level: level)
+        } else if model.cameraRect.width > 0 {
             CameraSplitView(model: model) {
                 Image(systemName: model.pulseSymbol)
             } right: {

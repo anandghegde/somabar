@@ -80,9 +80,39 @@ Slice 2, "engine alpha". Somabar can:
   checks under Settings › General). The update check is the only network call Somabar makes.
   Builds without a signing key, including every local build, have updates switched off.
 
-Not yet: transfers, the volume HUD and agent activity in the notch (roadmap). Nothing built
-after the engine alpha has been exercised by hand yet, and the notch has not been seen on a
-notched Mac; see `implementation_status.md`.
+- Group items (Settings › Groups): up to 8 items share one glyph in the bar and always sit
+  in the same section. Clicking the glyph opens a row of its members; ⌘-dragging one member
+  brings the rest along; triggers can show or hide a whole group (`showGroup`,
+  `hideGroup`), and the palette lists groups.
+- Give any item or group its own hot key (Settings › Hot Keys › Items and groups). It opens
+  the item's menu the way search does, even when the item is hidden. Clashing combos are
+  refused.
+- Show downloads in the notch (Transfers, off by default, turned on per profile): a progress
+  ring while Safari, Chrome, Firefox, Opera or AirDrop writes into Downloads, a row with
+  "Show in Finder" in Expanded, and a "Downloaded" pulse. macOS asks once for access to the
+  Downloads folder.
+- Replace the macOS volume overlay with a slim bar in the notch (Volume HUD, off by default,
+  per profile). The volume keys step by a sixteenth, or finer with ⌥⇧. Without Accessibility
+  Somabar only follows the volume and the macOS overlay still shows.
+- Show coding agents in the notch. Turn on Settings › Advanced › Listen for coding agents,
+  copy `Scripts/somabar-agent-hook.sh` somewhere, and add the hooks from
+  `Scripts/claude-code-hooks.example.json` to your Claude Code settings. The notch shows
+  when an agent is working, pulses when one needs you or finishes, and lists sessions by
+  project with a button that brings the terminal forward. Reports go over
+  `~/Library/Application Support/Somabar/agent.sock`, which only your user can reach, one
+  JSON line each (`{"session": "…", "project": "…", "state": "working|needsYou|done|ended",
+  "detail": "…"}`), or `somabar://agent?session=…&state=…`. Somabar never answers an agent
+  or types into a terminal.
+- Tint the menu bar (Settings › General › Menu bar style): none, the system accent or a
+  colour, at 10–100 %, with an optional 1 px hairline, set apart for light and dark mode. Off
+  by default.
+- Control calls and music from the notch: mute the microphone during a call (put back when
+  the call ends), press the call app's own Leave item where it has one (Zoom, FaceTime,
+  Teams, Webex, Slack huddles, Discord; never "End Meeting"), seek with a slider in Music or
+  Spotify, and pick the audio output.
+
+Nothing built after the engine alpha has been exercised by hand yet, and the notch has not
+been seen on a notched Mac; see `implementation_status.md`.
 
 ## Requirements
 
@@ -149,6 +179,19 @@ when something changes.
 | `displayRules.showEverythingAbovePoints` | 2560 | Keep every item in the bar on a display wider than this; `null` turns it off. |
 | `displayRules.trayOnlyOnBuiltInDisplay` | true | Open the tray on the built-in display when there is one. |
 | `displayRules.leaveInactiveDisplaysUntouched` | true | Evaluate display rules against the display whose menu bar is active; off means the widest display. |
+| `agentSocket` | false | Listen for coding agents on the socket and `somabar://agent`. |
+| `menuBarStyle` | none | Tint colour, strength and hairline for light and dark mode. |
+
+Groups and item hot keys live at the top level of the layout file, beside `profiles`:
+
+```json
+"groups": [{"id": "6F1C…", "name": "Dev", "glyph": "hammer",
+            "members": [{"bundleID": "com.docker.docker", "title": "", "ordinal": 0}]}],
+"itemHotKeys": [
+  {"item": {"bundleID": "com.docker.docker", "title": "", "ordinal": 0}, "combo": {…}},
+  {"group": "6F1C…", "combo": {…}}
+]
+```
 | `knownRouters` | [] | Hardware addresses of routers the `knownRouter` condition trusts. |
 
 ## Triggers
@@ -242,6 +285,9 @@ The glyph's menu shows which triggers hold under "Triggers". The log (below) has
 | `App/ItemImages` | ScreenCaptureKit captures for real item images and the icon-change detector. |
 | `App/Spacing` | Writes the item spacing defaults and shows the one-time note. |
 | `App/Updates` | Sparkle 2 updates and the Updates section in Settings. |
+| `App/Groups` | Group glyphs, the group row and hot key targets. |
+| `App/MenuBarStyle` | The menu bar tint window. |
+| `Scripts` | The coding-agent hook script and a Claude Code hooks example. |
 
 Your layout lives in `~/Library/Application Support/Somabar/layout.somabar`. Set
 `SOMABAR_DOCUMENT_DIR` to run a copy against another directory, for instance to try triggers

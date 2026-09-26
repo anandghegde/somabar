@@ -53,6 +53,7 @@ struct GeneralSettingsView: View {
                 Text("Apps opened from now on use the new spacing; logging out applies it to every item.")
                     .foregroundStyle(.secondary)
             }
+            MenuBarStyleSection(style: $model.preferences.menuBarStyle)
             UpdatesSettingsSection()
         }
         .formStyle(.grouped)

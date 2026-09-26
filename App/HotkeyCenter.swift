@@ -11,9 +11,17 @@ private let hotkeySignature: OSType = 0x534D_4252
 @MainActor
 final class HotkeyCenter {
     var onAction: (@MainActor (HotkeyAction) -> Void)?
+    /// A per-item or per-group hot key (M11) fired.
+    var onTarget: (@MainActor (HotKeyTarget) -> Void)?
+
+    /// What a registration does when its keys are pressed.
+    private enum Binding {
+        case action(HotkeyAction)
+        case target(HotKeyTarget)
+    }
 
     private var handler: EventHandlerRef?
-    private var registrations: [UInt32: (ref: EventHotKeyRef, action: HotkeyAction)] = [:]
+    private var registrations: [UInt32: (ref: EventHotKeyRef, binding: Binding)] = [:]
     private var nextID: UInt32 = 1
     private let log = Logger(subsystem: "app.somabar", category: "Hotkeys")
 
@@ -27,25 +35,41 @@ final class HotkeyCenter {
         }
     }
 
-    /// Replaces every registration. Combos that cannot be registered are logged and skipped.
-    func register(_ hotkeys: [Hotkey]) {
+    /// Replaces every registration: the actions' hot keys and the per-item ones. Combos that
+    /// cannot be registered are logged and skipped.
+    func register(_ hotkeys: [Hotkey], items: [ItemHotKey] = []) {
         unregisterAll()
         for hotkey in hotkeys {
             guard let combo = hotkey.combo else { continue }
-            guard let keyCode = KeyCodes.virtualKey(for: combo.key) else {
-                log.error("No key code for \(combo.display, privacy: .public); skipping \(hotkey.action.displayName, privacy: .public)")
-                continue
-            }
-            let id = EventHotKeyID(signature: hotkeySignature, id: nextID)
-            var ref: EventHotKeyRef?
-            let status = RegisterEventHotKey(keyCode, KeyCodes.carbonModifiers(combo.modifiers), id, GetApplicationEventTarget(), 0, &ref)
-            guard status == noErr, let ref else {
-                log.error("Could not register \(combo.display, privacy: .public) (\(status)); another app may own it")
-                continue
-            }
-            registrations[nextID] = (ref, hotkey.action)
-            log.notice("Registered \(combo.display, privacy: .public) for \(hotkey.action.displayName, privacy: .public)")
-            nextID += 1
+            register(combo, for: .action(hotkey.action), name: hotkey.action.displayName)
+        }
+        for hotkey in items {
+            guard let combo = hotkey.combo else { continue }
+            register(combo, for: .target(hotkey.target), name: Self.name(of: hotkey.target))
+        }
+    }
+
+    private func register(_ combo: KeyCombo, for binding: Binding, name: String) {
+        guard let keyCode = KeyCodes.virtualKey(for: combo.key) else {
+            log.error("No key code for \(combo.display, privacy: .public); skipping \(name, privacy: .public)")
+            return
+        }
+        let id = EventHotKeyID(signature: hotkeySignature, id: nextID)
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(keyCode, KeyCodes.carbonModifiers(combo.modifiers), id, GetApplicationEventTarget(), 0, &ref)
+        guard status == noErr, let ref else {
+            log.error("Could not register \(combo.display, privacy: .public) (\(status)); another app may own it")
+            return
+        }
+        registrations[nextID] = (ref, binding)
+        log.notice("Registered \(combo.display, privacy: .public) for \(name, privacy: .public)")
+        nextID += 1
+    }
+
+    private static func name(of target: HotKeyTarget) -> String {
+        switch target {
+        case .item(let key): "open \(key.description)"
+        case .group(let id): "open group \(id.uuidString)"
         }
     }
 
@@ -58,8 +82,14 @@ final class HotkeyCenter {
 
     fileprivate func fire(id: UInt32) {
         guard let registration = registrations[id] else { return }
-        log.notice("Hot key fired: \(registration.action.displayName, privacy: .public)")
-        onAction?(registration.action)
+        switch registration.binding {
+        case .action(let action):
+            log.notice("Hot key fired: \(action.displayName, privacy: .public)")
+            onAction?(action)
+        case .target(let target):
+            log.notice("Hot key fired: \(Self.name(of: target), privacy: .public)")
+            onTarget?(target)
+        }
     }
 }
 

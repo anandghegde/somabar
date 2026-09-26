@@ -86,8 +86,8 @@ public struct TriggerEvaluator: Sendable {
     /// Collects the effects of every enabled trigger whose condition holds.
     ///
     /// Show beats hide for the same item. When several triggers switch profile, the last one in
-    /// list order wins.
-    public func effects(of triggers: [Trigger], in context: ContextSnapshot) -> TriggerEffects {
+    /// list order wins. A group's show or hide acts on each of its members.
+    public func effects(of triggers: [Trigger], in context: ContextSnapshot, groups: [ItemGroup] = []) -> TriggerEffects {
         var effects = TriggerEffects()
         for trigger in triggers where trigger.isEnabled && holds(trigger.condition, in: context) {
             switch trigger.action {
@@ -97,6 +97,14 @@ public struct TriggerEvaluator: Sendable {
                 if !effects.hide.contains(key) { effects.hide.append(key) }
             case .switchProfile(let name):
                 effects.profile = name
+            case .showGroup(let id):
+                for key in groups.first(where: { $0.id == id })?.members ?? [] where !effects.show.contains(key) {
+                    effects.show.append(key)
+                }
+            case .hideGroup(let id):
+                for key in groups.first(where: { $0.id == id })?.members ?? [] where !effects.hide.contains(key) {
+                    effects.hide.append(key)
+                }
             }
         }
         effects.hide.removeAll { effects.show.contains($0) }

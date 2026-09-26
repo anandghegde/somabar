@@ -5,110 +5,30 @@ import os
 import SomabarCore
 import SwiftUI
 
-// MARK: - Shared panel
-
-/// A borderless panel that takes the keyboard without activating Somabar, so the app the person
-/// was using stays in front. The search palette and the Hidden items tray both use it.
-final class SomabarPanel: NSPanel {
-    /// ⎋, when no text field claims it first.
-    var onCancel: (@MainActor () -> Void)?
-
-    init(contentRect: NSRect) {
-        super.init(contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        isFloatingPanel = true
-        level = .popUpMenu
-        hidesOnDeactivate = false
-        isReleasedWhenClosed = false
-        isMovable = false
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
-        animationBehavior = .utilityWindow
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
-    }
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-
-    override func cancelOperation(_ sender: Any?) {
-        onCancel?()
-    }
-
-    /// Rounded translucent backing with `content` pinned inside it.
-    static func backing(for content: NSView, material: NSVisualEffectView.Material, cornerRadius: CGFloat) -> NSView {
-        let effect = NSVisualEffectView()
-        effect.material = material
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = cornerRadius
-        effect.layer?.masksToBounds = true
-        content.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            content.topAnchor.constraint(equalTo: effect.topAnchor),
-            content.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-        ])
-        return effect
-    }
-}
-
-/// Calls back on any click in another app, so a panel closes when the person clicks away. A
-/// non-activating panel does not always lose key status when another app is clicked.
-@MainActor
-final class OutsideClickMonitor {
-    private var monitor: Any?
-
-    func start(_ onClick: @escaping @MainActor () -> Void) {
-        stop()
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { _ in
-            MainActor.assumeIsolated { onClick() }
-        }
-    }
-
-    func stop() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        monitor = nil
-    }
-}
-
-/// App icons by bundle ID, falling back to the running process's icon for helpers without a bundle.
-@MainActor
-enum ItemIcons {
-    private static var cache: [String: NSImage] = [:]
-
-    static func icon(bundleID: String, pid: pid_t?) -> NSImage {
-        if let cached = cache[bundleID] {
-            return cached
-        }
-        let icon: NSImage
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            icon = NSWorkspace.shared.icon(forFile: url.path)
-        } else if let pid, let running = NSRunningApplication(processIdentifier: pid)?.icon {
-            icon = running
-        } else {
-            icon = NSImage(systemSymbolName: "questionmark.app.dashed", accessibilityDescription: nil) ?? NSImage()
-        }
-        cache[bundleID] = icon
-        return icon
-    }
-}
-
 // MARK: - Palette
+
+/// What a palette line opens: an item's window, a group (M9), or an entry in the menu the
+/// palette is showing, by its `MenuEntry.path` (1.1).
+enum PaletteTarget: Hashable, Sendable {
+    case window(CGWindowID)
+    case group(UUID)
+    case menuEntry([Int])
+}
 
 /// One line in the search palette.
 struct PaletteRow: Identifiable {
-    var id: CGWindowID
+    var id: PaletteTarget
     var appName: String
     /// The item's own title, searched as well as shown.
     var title: String
     var detail: String
-    var tag: SearchTag
+    /// Nil for menu entries, which show their shortcut instead.
+    var tag: SearchTag?
     var icon: NSImage
+    var shortcut = ""
+    var hasSubmenu = false
+    var isEnabled = true
+    var isChecked = false
 }
 
 @Observable
@@ -164,13 +84,25 @@ struct PaletteList: View {
                 }
             }
             Spacer(minLength: 8)
-            Text(row.tag.displayName)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(.quaternary))
+            if row.isChecked {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.secondary)
+            }
+            if !row.shortcut.isEmpty {
+                Text(row.shortcut).font(.callout).foregroundStyle(.secondary)
+            }
+            if row.hasSubmenu {
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+            }
+            if let tag = row.tag {
+                Text(tag.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(.quaternary))
+            }
         }
+        .opacity(row.isEnabled ? 1 : 0.45)
         .padding(.horizontal, 10)
         .frame(height: Self.rowHeight)
         .background(RoundedRectangle(cornerRadius: 7).fill(isSelected ? Color.accentColor.opacity(0.3) : .clear))
@@ -180,6 +112,10 @@ struct PaletteList: View {
 
 /// The Spotlight-like search palette (⌃⌥/): type to filter every item the last scan found, ↩ or
 /// a click opens the item's menu. It never activates Somabar, so the front app keeps its menus.
+///
+/// → at the end of the query lists the selected item's menu instead (1.1), read through
+/// Accessibility: typing filters it and its submenus, → or ↩ opens a submenu, ↩ presses an entry,
+/// and ← at the start of the query or ⌫ on an empty one goes back a level.
 @MainActor
 final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     static let width: CGFloat = 600
@@ -188,17 +124,27 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
 
     private let panel = SomabarPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: fieldHeight))
     private let field = NSTextField()
+    private let crumbs = NSTextField(labelWithString: "")
     private let model = PaletteModel()
     private let outsideClicks = OutsideClickMonitor()
-    private let onActivate: @MainActor (CGWindowID) -> Void
+    private let onActivate: @MainActor (PaletteTarget) -> Void
+    private let menus: PaletteMenuActions
     private var allRows: [PaletteRow] = []
     private var emptyNote = ""
+    /// Set while the palette lists one item's menu rather than the bar.
+    private var menu: PaletteMenu?
+    private var menuMatches: [MenuMatch] = []
+    private var menuLoad: Task<Void, Never>?
+    /// The item list's query and selection, put back on leaving the menu.
+    private var itemQuery = ""
+    private var itemSelection: Int?
     /// The palette's top edge stays put while its height follows the list.
     private var top: CGFloat = 0
 
     var isVisible: Bool { panel.isVisible }
 
-    init(onActivate: @escaping @MainActor (CGWindowID) -> Void) {
+    init(menus: PaletteMenuActions, onActivate: @escaping @MainActor (PaletteTarget) -> Void) {
+        self.menus = menus
         self.onActivate = onActivate
         super.init()
         panel.delegate = self
@@ -210,6 +156,7 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
     func present(rows: [PaletteRow], emptyNote: String) {
         allRows = rows
         self.emptyNote = emptyNote
+        leaveMenu()
         field.stringValue = ""
         let screen = NSScreen.main ?? ScreenGeometry.primaryScreen
         if let visible = screen?.visibleFrame {
@@ -223,6 +170,7 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
     }
 
     func close() {
+        leaveMenu()
         outsideClicks.stop()
         panel.orderOut(nil)
     }
@@ -238,17 +186,23 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 22, weight: .light)
-        field.placeholderString = "Search menu bar items"
+        field.placeholderString = Self.itemPlaceholder
         field.delegate = self
         field.cell?.usesSingleLineMode = true
         field.cell?.lineBreakMode = .byTruncatingTail
+
+        crumbs.font = .systemFont(ofSize: 13)
+        crumbs.textColor = .secondaryLabelColor
+        crumbs.lineBreakMode = .byTruncatingHead
+        crumbs.setContentHuggingPriority(.required, for: .horizontal)
+        crumbs.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let separator = NSBox()
         separator.boxType = .separator
         let list = NSHostingView(rootView: PaletteList(model: model) { [weak self] index in self?.activate(index) })
 
         let container = NSView()
-        for view in [magnifier, field, separator, list] as [NSView] {
+        for view in [magnifier, field, crumbs, separator, list] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -257,8 +211,11 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
             magnifier.centerYAnchor.constraint(equalTo: container.topAnchor, constant: Self.fieldHeight / 2),
             magnifier.widthAnchor.constraint(equalToConstant: 22),
             field.leadingAnchor.constraint(equalTo: magnifier.trailingAnchor, constant: 10),
-            field.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
+            field.trailingAnchor.constraint(equalTo: crumbs.leadingAnchor, constant: -10),
             field.centerYAnchor.constraint(equalTo: magnifier.centerYAnchor),
+            crumbs.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
+            crumbs.centerYAnchor.constraint(equalTo: magnifier.centerYAnchor),
+            crumbs.widthAnchor.constraint(lessThanOrEqualToConstant: 280),
             separator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             separator.topAnchor.constraint(equalTo: container.topAnchor, constant: Self.fieldHeight),
@@ -280,21 +237,127 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
 
     // MARK: - Filtering and keys
 
-    private func refilter() {
+    private static let itemPlaceholder = "Search menu bar items (→ lists an item’s menu)"
+
+    /// Refills the list for the query, selecting `selection` when it is still a row, else the top.
+    private func refilter(selecting selection: Int? = nil) {
         let query = field.stringValue
-        let candidates = allRows.map { SearchCandidate(id: $0.id, appName: $0.appName, title: $0.title, tag: $0.tag) }
-        let byID = Dictionary(allRows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        model.rows = ItemSearch.rank(candidates, query: query).compactMap { byID[$0.id] }
-        model.selection = model.rows.isEmpty ? nil : 0
-        model.emptyMessage = allRows.isEmpty ? emptyNote : "No items match “\(query)”"
+        if let menu {
+            menuMatches = menu.drill.matches(query: query)
+            model.rows = menuMatches.map { PaletteRow(match: $0, icon: menu.icon) }
+            model.emptyMessage = menu.drill.entries.isEmpty ? menu.emptyNote : "No menu items match “\(query)”"
+        } else {
+            let candidates = allRows.map { SearchCandidate(id: $0.id, appName: $0.appName, title: $0.title, tag: $0.tag ?? .shown) }
+            let byID = Dictionary(allRows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            model.rows = ItemSearch.rank(candidates, query: query).compactMap { byID[$0.id] }
+            model.emptyMessage = allRows.isEmpty ? emptyNote : "No items match “\(query)”"
+        }
+        let crumbs = menu?.drill.breadcrumb ?? []
+        self.crumbs.stringValue = crumbs.joined(separator: " › ")
+        field.placeholderString = crumbs.last.map { "Search \($0)" } ?? Self.itemPlaceholder
+        if model.rows.isEmpty {
+            model.selection = nil
+        } else {
+            model.selection = selection.map { min(max($0, 0), model.rows.count - 1) } ?? 0
+        }
         resizeToFit()
     }
 
     private func activate(_ index: Int) {
-        guard model.rows.indices.contains(index) else { return }
+        guard model.rows.indices.contains(index) else {
+            // An item whose menu could not be listed still opens the ordinary way.
+            if let menu, menu.drill.entries.isEmpty {
+                close()
+                onActivate(.window(menu.windowID))
+            }
+            return
+        }
         let id = model.rows[index].id
+        if case .menuEntry = id {
+            if !drillIn() {
+                pressMenuEntry(index)
+            }
+            return
+        }
         close()
         onActivate(id)
+    }
+
+    // MARK: - Menus
+
+    /// Lists the selected item's menu, or opens the selected submenu. False when the selection is
+    /// neither an item nor a submenu, so the key can do its usual job.
+    private func drillIn() -> Bool {
+        guard let selection = model.selection, model.rows.indices.contains(selection) else { return false }
+        switch model.rows[selection].id {
+        case .window(let windowID):
+            loadMenu(of: windowID, name: model.rows[selection].appName, selection: selection)
+            return true
+        case .menuEntry:
+            guard var menu, menuMatches.indices.contains(selection),
+                  menu.drill.enter(menuMatches[selection].entry, query: field.stringValue, selection: selection)
+            else { return false }
+            self.menu = menu
+            field.stringValue = ""
+            refilter()
+            return true
+        case .group:
+            return false
+        }
+    }
+
+    private func loadMenu(of windowID: CGWindowID, name: String, selection: Int) {
+        itemQuery = field.stringValue
+        itemSelection = selection
+        model.rows = []
+        model.selection = nil
+        model.emptyMessage = "Reading \(name)’s menu…"
+        resizeToFit()
+        menuLoad?.cancel()
+        menuLoad = Task { [weak self] in
+            guard let loaded = await self?.menus.read(windowID), let self, !Task.isCancelled, self.panel.isVisible else {
+                if !Task.isCancelled {
+                    NSSound.beep()
+                    self?.refilter(selecting: selection)
+                }
+                return
+            }
+            self.menu = loaded
+            self.field.stringValue = ""
+            self.refilter()
+        }
+    }
+
+    /// Up one submenu, or from the top of the menu back to the items with the query put back.
+    private func goBack() {
+        guard var menu else { return }
+        if let restored = menu.drill.back() {
+            self.menu = menu
+            field.stringValue = restored.query
+            refilter(selecting: restored.selection)
+        } else {
+            leaveMenu()
+            field.stringValue = itemQuery
+            refilter(selecting: itemSelection)
+        }
+    }
+
+    private func leaveMenu() {
+        menuLoad?.cancel()
+        menuLoad = nil
+        menu = nil
+        menuMatches = []
+    }
+
+    private func pressMenuEntry(_ index: Int) {
+        guard let menu, menuMatches.indices.contains(index) else { return }
+        let entry = menuMatches[index].entry
+        guard entry.isEnabled, let handle = menu.elements[entry.path] else {
+            NSSound.beep()
+            return
+        }
+        close()
+        menus.press(handle, (menu.drill.breadcrumb + menuMatches[index].trail + [entry.title]).joined(separator: " › "))
     }
 
     func controlTextDidChange(_ notification: Notification) {
@@ -307,16 +370,27 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
             model.selection = ItemSearch.moveSelection(model.selection, by: -1, count: model.rows.count)
         case #selector(NSResponder.moveDown(_:)):
             model.selection = ItemSearch.moveSelection(model.selection, by: 1, count: model.rows.count)
+        case #selector(NSResponder.moveRight(_:)):
+            return isCaretAtEnd(textView) && drillIn()
+        case #selector(NSResponder.moveLeft(_:)):
+            guard menu != nil, textView.selectedRange() == NSRange(location: 0, length: 0) else { return false }
+            goBack()
+        case #selector(NSResponder.deleteBackward(_:)):
+            guard menu != nil, field.stringValue.isEmpty else { return false }
+            goBack()
         case #selector(NSResponder.insertNewline(_:)):
-            if let selection = model.selection {
-                activate(selection)
-            }
+            activate(model.selection ?? -1)
         case #selector(NSResponder.cancelOperation(_:)):
             close()
         default:
             return false
         }
         return true
+    }
+
+    private func isCaretAtEnd(_ textView: NSTextView) -> Bool {
+        let range = textView.selectedRange()
+        return range.length == 0 && range.location == (textView.string as NSString).length
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -335,10 +409,16 @@ extension SomabarController {
         }
         trayWindow?.close()
         if searchPalette == nil {
-            searchPalette = SearchPaletteController { [weak self] windowID in self?.activateItem(windowID: windowID) }
+            searchPalette = SearchPaletteController(menus: paletteMenuActions) { [weak self] target in
+                switch target {
+                case .window(let windowID): self?.activateItem(windowID: windowID)
+                case .group(let id): self?.revealGroup(id)
+                case .menuEntry: break  // The palette presses those itself.
+                }
+            }
         }
         let windows = StatusWindows.all()
-        let rows = items.map { paletteRow(for: $0, windows: windows) }
+        let rows = items.map { paletteRow(for: $0, windows: windows) } + groupPaletteRows
         let note = AccessibilityPermission.isTrusted
             ? "Somabar has not found any items yet"
             : "Grant Accessibility access so Somabar can find and name items"
@@ -351,13 +431,35 @@ extension SomabarController {
     func closeItemPanels() {
         searchPalette?.close()
         trayWindow?.close()
+        groupRow?.close()
+    }
+
+    /// One row per group with members, after the items. Choosing it reveals the group's section.
+    private var groupPaletteRows: [PaletteRow] {
+        let layout = effectiveLayout
+        return document.groups.filter { !$0.members.isEmpty }.map { group in
+            let section = group.members.lazy.compactMap { layout.section(of: $0) }.first ?? .shown
+            let count = group.members.count
+            let symbol: String
+            switch group.face {
+            case .symbol(let name): symbol = name
+            case .letter(let letter): symbol = "\(letter.lowercased()).square"
+            }
+            let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: group.name)
+                ?? NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: group.name) ?? NSImage()
+            return PaletteRow(
+                id: .group(group.id), appName: group.name, title: "group",
+                detail: "Group of \(count) item\(count == 1 ? "" : "s")",
+                tag: SearchTag(section: section, isManagedByMacOS: false), icon: icon
+            )
+        }
     }
 
     private func paletteRow(for item: DiscoveredItem, windows: [StatusWindow]) -> PaletteRow {
         let tag = SearchTag(section: barSection(of: item, in: windows), isManagedByMacOS: item.isManagedByMacOS)
         guard item.isIdentified else {
             return PaletteRow(
-                id: item.windowID, appName: "Unidentified item", title: "", detail: "Somabar can point at it but not open it",
+                id: .window(item.windowID), appName: "Unidentified item", title: "", detail: "Somabar can point at it but not open it",
                 tag: tag, icon: itemImage(windowID: item.windowID, bundleID: DiscoveredItem.unknownBundleID, pid: nil)
             )
         }
@@ -367,7 +469,7 @@ extension SomabarController {
             detail += detail.isEmpty ? "#\(item.key.ordinal + 1)" : " (\(item.key.ordinal + 1))"
         }
         return PaletteRow(
-            id: item.windowID, appName: appName, title: item.key.title, detail: detail,
+            id: .window(item.windowID), appName: appName, title: item.key.title, detail: detail,
             tag: tag, icon: itemImage(windowID: item.windowID, bundleID: item.key.bundleID, pid: item.pid)
         )
     }

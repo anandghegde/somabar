@@ -15,8 +15,8 @@ final class SomabarController: NSObject, NSMenuDelegate {
     let engine: any BarEngine
     let store: DocumentStore
     var document: SomabarDocument
-    private(set) var items: [DiscoveredItem] = []
-    private(set) var lastScan: Date?
+    var items: [DiscoveredItem] = []
+    var lastScan: Date?
 
     let rehide = RehideController()
     let menus = MenuWatcher()
@@ -44,17 +44,20 @@ final class SomabarController: NSObject, NSMenuDelegate {
     var notchSurface: NotchSurface?
     var displayRuleDecision: Bool?
 
-    private let hotkeys = HotkeyCenter()
-    private let menu = NSMenu()
+    let hotkeys = HotkeyCenter()
+    let menu = NSMenu()
     /// `SearchPalette.swift` and `TrayWindow.swift`.
     var searchPalette: SearchPaletteController?
     var trayWindow: TrayWindowController?
-    private var itemsWindow: ItemsWindowController?
+    /// `App/Groups/`: one glyph per group, and the row of members a glyph opens.
+    var groupGlyphs: [UUID: NSStatusItem] = [:]
+    var groupRow: TrayWindowController?
+    var itemsWindow: ItemsWindowController?
     /// `App/Settings/`.
     var settingsWindow: SettingsWindowController?
-    private var scanTask: Task<Void, Never>?
-    private var activeScan: Task<Void, Never>?
-    private var pendingScanReason: String?
+    var scanTask: Task<Void, Never>?
+    var activeScan: Task<Void, Never>?
+    var pendingScanReason: String?
     var trustTask: Task<Void, Never>?
     private var didReportSaveFailure = false
 
@@ -76,7 +79,8 @@ final class SomabarController: NSObject, NSMenuDelegate {
         engine.showsDividers = document.preferences.showDividers
         configureControlButton()
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
-        hotkeys.register(document.hotkeys)
+        hotkeys.onTarget = { [weak self] target in self?.open(target) }
+        hotkeys.register(document.hotkeys, items: document.itemHotKeys)
         observeWorkspace()
         statusWindows.onChange = { [weak self] in self?.scheduleScan(after: 1.0, reason: "status windows changed") }
         statusWindows.start()
@@ -84,6 +88,7 @@ final class SomabarController: NSObject, NSMenuDelegate {
         startTriggers()
         startDisplayRules()
         startNotchSurface()
+        syncGroupGlyphs()
         applySpacingAtLaunch()
         startUpdates()
 
@@ -104,6 +109,7 @@ final class SomabarController: NSObject, NSMenuDelegate {
         context.stop()
         gestures?.stop()
         stopNotchSurface()
+        removeGroupGlyphs()
         scanTask?.cancel()
         activeScan?.cancel()
         reconcileTask?.cancel()
@@ -114,118 +120,6 @@ final class SomabarController: NSObject, NSMenuDelegate {
         saveDocument(reason: "Quit")
         engine.teardown()
         restoreSpacingAtQuit()
-    }
-
-    // MARK: - Hide and reveal
-
-    var isRevealed: Bool { engine.isHiddenRevealed }
-
-    func reveal(includingTucked: Bool) {
-        guard !reconciler.isRunning else { return }
-        engine.setHiddenRevealed(true)
-        if includingTucked {
-            engine.setTuckedRevealed(true)
-        }
-        clearNewItemsDot()
-        menus.start()
-        scheduleRehide()
-        scheduleScan(after: 0.6, reason: "reveal")
-    }
-
-    func hideAll() {
-        guard !reconciler.isRunning else { return }
-        engine.setTuckedRevealed(false)
-        engine.setHiddenRevealed(false)
-        rehide.cancel()
-        menus.stop()
-        scheduleScan(after: 0.6, reason: "hide")
-    }
-
-    func toggleHidden() {
-        if engine.isHiddenRevealed {
-            hideAll()
-        } else {
-            reveal(includingTucked: false)
-        }
-    }
-
-    func toggleTucked() {
-        if engine.isTuckedRevealed {
-            hideAll()
-        } else {
-            reveal(includingTucked: true)
-        }
-    }
-
-    func scheduleRehide() {
-        let seconds = document.preferences.rehideAfterSeconds
-        guard seconds > 0, !document.preferences.stillMode else {
-            rehide.cancel()
-            return
-        }
-        rehide.onFire = { [weak self] in self?.hideAll() }
-        rehide.schedule(after: seconds)
-    }
-
-    // MARK: - Discovery and learning
-
-    func scheduleScan(after seconds: Double, reason: String) {
-        scanTask?.cancel()
-        scanTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled else { return }
-            self?.scanNow(reason: reason)
-        }
-    }
-
-    /// Scans on the next turn; a scan already running finishes first and this one follows it.
-    func scanNow(reason: String) {
-        pendingScanReason = reason
-        guard activeScan == nil else { return }
-        activeScan = Task { @MainActor [weak self] in
-            while let self, let reason = self.pendingScanReason {
-                self.pendingScanReason = nil
-                await self.performScan(reason: reason)
-            }
-            self?.activeScan = nil
-        }
-    }
-
-    private func performScan(reason: String) async {
-        // While the reconciler drags items a scan sees one mid-move and could learn from it.
-        guard !reconciler.isRunning else {
-            scanAfterReconcile = reason
-            log.info("Scan (\(reason, privacy: .public)) waits for the reconcile to end")
-            return
-        }
-        let found = await BarScanner.scan(ownFrames: engine.ownFrames)
-        items = found
-        lastScan = Date()
-        refreshItemImages()
-        // Before absorbing: a screen-sharing trigger changes what the bar should look like.
-        context.setScreenShared(found.contains { $0.key.bundleID == SystemItems.screenSharingAgent })
-        if absorbScan() {
-            saveDocument(reason: "Learned from the bar")
-        }
-        refreshItemsWindow()
-        let identified = found.filter(\.isIdentified).count
-        log.info("Scanned the bar (\(reason, privacy: .public)): \(found.count) items, \(identified) identified, trusted: \(AccessibilityPermission.isTrusted)")
-        if needsReconcile {
-            reconcileBar(reason: reason)
-        }
-    }
-
-    /// Items the scan saw but could not attribute to an app, placed by section.
-    private var unidentifiedBySection: [SomabarCore.Section: Int] {
-        guard let boundaries = engine.dividerBoundaries else { return [:] }
-        let unknown = items.filter { !$0.isIdentified }
-        let observed = ObservedBar(items: unknown.map(\.placed), hiddenDividerX: boundaries.hidden, tuckedDividerX: boundaries.tucked)
-        let layout = observed.layout(known: Layout())
-        var counts: [SomabarCore.Section: Int] = [:]
-        for section in SomabarCore.Section.allCases where !layout[section].isEmpty {
-            counts[section] = layout[section].count
-        }
-        return counts
     }
 
     // MARK: - Document
@@ -318,175 +212,15 @@ final class SomabarController: NSObject, NSMenuDelegate {
         }
     }
 
-    // MARK: - Glyph and menu
-
-    private func configureControlButton() {
-        guard let button = engine.controlButton else { return }
-        button.target = self
-        button.action = #selector(controlClicked(_:))
-        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-    }
-
-    @objc private func controlClicked(_ sender: NSStatusBarButton) {
-        guard !ItemMover.isMoving else { return }
-        log.notice("Glyph clicked: \(NSApp.currentEvent.map { String(describing: $0.type) } ?? "no event", privacy: .public)")
-        guard let event = NSApp.currentEvent else {
-            toggleHidden()
-            return
-        }
-        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
-        } else if event.modifierFlags.contains(.option) {
-            toggleTucked()
-        } else {
-            toggleHidden()
-        }
-    }
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-
-        let toggle = menu.addItem(withTitle: engine.isHiddenRevealed ? "Hide Items" : "Reveal Hidden Items",
-                                  action: #selector(toggleHiddenAction), keyEquivalent: "")
-        apply(document.combo(for: .toggleHidden), to: toggle)
-        menu.addItem(withTitle: engine.isTuckedRevealed ? "Hide Tucked Items" : "Reveal Tucked Items Too",
-                     action: #selector(toggleTuckedAction), keyEquivalent: "")
-        menu.addItem(.separator())
-
-        let searchItem = menu.addItem(withTitle: "Search Items…", action: #selector(searchItemsAction), keyEquivalent: "")
-        apply(document.combo(for: .searchItems), to: searchItem)
-        let trayItem = menu.addItem(withTitle: "Hidden Items Tray…", action: #selector(openTrayAction), keyEquivalent: "")
-        apply(document.combo(for: .openTray), to: trayItem)
-        menu.addItem(withTitle: "Items…", action: #selector(showItemsAction), keyEquivalent: "")
-
-        let profiles = NSMenu()
-        for profile in document.profiles {
-            let item = profiles.addItem(withTitle: profile.name, action: #selector(switchProfileAction(_:)), keyEquivalent: "")
-            item.state = profile.name == document.activeProfile ? .on : .off
-            item.representedObject = profile.name
-            item.target = self
-        }
-        if !canMoveItems {
-            profiles.addItem(.separator())
-            let note = profiles.addItem(withTitle: "Rearranging items needs Accessibility access", action: nil, keyEquivalent: "")
-            note.isEnabled = false
-        }
-        let profileItem = menu.addItem(withTitle: "Profile", action: nil, keyEquivalent: "")
-        apply(document.combo(for: .cycleProfile), to: profileItem)
-        profileItem.submenu = profiles
-        addTriggersMenu(to: menu)
-        menu.addItem(.separator())
-
-        let dividers = menu.addItem(withTitle: "Show Dividers", action: #selector(toggleDividersAction), keyEquivalent: "")
-        dividers.state = engine.showsDividers ? .on : .off
-        menu.addItem(withTitle: "Rescan Menu Bar", action: #selector(rescanAction), keyEquivalent: "")
-        menu.addItem(withTitle: "Reset Somabar's Positions", action: #selector(resetPositionsAction), keyEquivalent: "")
-        if !AccessibilityPermission.isTrusted {
-            menu.addItem(withTitle: "Grant Accessibility Access…", action: #selector(grantAccessAction), keyEquivalent: "")
-        }
-        addUpdatesItem(to: menu)
-        menu.addItem(withTitle: "Settings…", action: #selector(showSettingsAction), keyEquivalent: ",")
-        menu.addItem(.separator())
-
-        let about: String
-        switch engine.capability {
-        case .full: about = "Somabar \(Self.version) · macOS 26 backend"
-        case .glyphOnly: about = "Somabar \(Self.version) · no backend for this macOS"
-        }
-        menu.addItem(withTitle: about, action: nil, keyEquivalent: "").isEnabled = false
-        menu.addItem(withTitle: "Quit Somabar", action: #selector(quitAction), keyEquivalent: "q")
-
-        for item in menu.items where item.action != nil {
-            item.target = self
-        }
-    }
-
-    private func apply(_ combo: KeyCombo?, to item: NSMenuItem) {
-        guard let combo else { return }
-        item.keyEquivalent = KeyCodes.menuKeyEquivalent(for: combo.key)
-        item.keyEquivalentModifierMask = KeyCodes.modifierFlags(combo.modifiers)
-    }
-
-    @objc private func toggleHiddenAction() { toggleHidden() }
-    @objc private func toggleTuckedAction() { toggleTucked() }
-    @objc private func showItemsAction() { showItems() }
-    @objc private func rescanAction() { scanNow(reason: "menu") }
-    @objc private func quitAction() { NSApp.terminate(nil) }
-
-    @objc private func switchProfileAction(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String else { return }
-        switchProfile(to: name)
-    }
-
-    @objc private func toggleDividersAction() {
-        engine.showsDividers.toggle()
-        document.preferences.showDividers = engine.showsDividers
-        saveDocument(reason: engine.showsDividers ? "Showed dividers" : "Hid dividers")
-    }
-
-    @objc private func resetPositionsAction() {
-        engine.resetPositions()
-        scheduleScan(after: 1.0, reason: "reset positions")
-    }
-
-    @objc private func grantAccessAction() {
-        requestAccessibility()
-    }
-
     // MARK: - Hot keys from Settings
 
     /// Settings changed a combo: register the document's hot keys again.
     func hotkeysDidChange() {
-        hotkeys.register(document.hotkeys)
+        hotkeys.register(document.hotkeys, items: document.itemHotKeys)
     }
 
     /// While Settings records a combo, Carbon must not swallow the keystroke.
     func suspendHotkeys() {
         hotkeys.unregisterAll()
-    }
-
-    // MARK: - Items window
-
-    func showItems() {
-        clearNewItemsDot()
-        if itemsWindow == nil {
-            itemsWindow = ItemsWindowController(
-                onRescan: { [weak self] in self?.scanNow(reason: "items window") },
-                onGrantAccess: { [weak self] in self?.requestAccessibility() }
-            )
-        }
-        refreshItemsWindow()
-        itemsWindow?.present()
-    }
-
-    private func refreshItemsWindow() {
-        guard let itemsWindow else { return }
-        var note: String?
-        if case .glyphOnly(let reason) = engine.capability {
-            note = reason
-        }
-        itemsWindow.update(document: document, items: items, unidentifiedBySection: unidentifiedBySection, lastScan: lastScan, backendNote: note)
-    }
-
-    // MARK: - Workspace events
-
-    private func observeWorkspace() {
-        let center = NSWorkspace.shared.notificationCenter
-        center.addObserver(self, selector: #selector(appActivated(_:)), name: NSWorkspace.didActivateApplicationNotification, object: nil)
-        center.addObserver(self, selector: #selector(appsChanged(_:)), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        center.addObserver(self, selector: #selector(appsChanged(_:)), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
-    }
-
-    @objc private func appActivated(_ notification: Notification) {
-        guard engine.isHiddenRevealed, document.preferences.rehideWhenAppChanges, !document.preferences.stillMode else { return }
-        let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-        guard app?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
-        // Not straight away: the click that switched apps may have been on a revealed item.
-        rehide.onFire = { [weak self] in self?.hideAll() }
-        rehide.schedule(after: 1.0)
-    }
-
-    @objc private func appsChanged(_ notification: Notification) {
-        scheduleScan(after: 2.0, reason: "apps changed")
     }
 }

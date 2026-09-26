@@ -19,11 +19,12 @@ struct TriggersSettingsView: View {
                         trigger: trigger,
                         isHolding: model.activeTriggerNames.contains(trigger.displayName),
                         profileMissing: missingProfile(trigger),
-                        onToggle: { isOn in
+                        groups: model.document.groups,
+                        isEnabled: Binding(get: { trigger.isEnabled }, set: { isOn in
                             var changed = trigger
                             changed.isEnabled = isOn
                             model.setTrigger(changed)
-                        },
+                        }),
                         onEdit: { editing = trigger },
                         onDelete: { model.removeTrigger(id: trigger.id) }
                     )
@@ -45,6 +46,7 @@ struct TriggersSettingsView: View {
                 trigger: trigger,
                 items: model.itemChoices,
                 profiles: model.document.profiles.map(\.name),
+                groups: model.document.groups,
                 onSave: { saved in
                     model.setTrigger(saved)
                     editing = nil
@@ -68,13 +70,14 @@ private struct TriggerRow: View {
     var trigger: Trigger
     var isHolding: Bool
     var profileMissing: Bool
-    var onToggle: (Bool) -> Void
+    var groups: [ItemGroup]
+    var isEnabled: Binding<Bool>
     var onEdit: () -> Void
     var onDelete: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Toggle("", isOn: Binding(get: { trigger.isEnabled }, set: onToggle))
+            Toggle("", isOn: isEnabled)
                 .labelsHidden()
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -83,7 +86,7 @@ private struct TriggerRow: View {
                         Text("Holding").font(.caption).foregroundStyle(.green)
                     }
                 }
-                Text("When \(ConditionText.describe(trigger.condition)), \(trigger.action.summary)")
+                Text("When \(ConditionText.describe(trigger.condition)), \(trigger.action.summary(groups: groups))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

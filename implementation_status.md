@@ -90,8 +90,8 @@ driven the gestures.
   `Spacing`, `Updates`, `icons` and `activities`. Read with
   `/usr/bin/log show --last 5m --predicate 'subsystem == "app.somabar"' --info --style compact`.
   Only `.info` and above persist; `.debug` lines do not show up in `log show`.
-- 213 unit tests in 44 suites pass (`swift test`); `swiftlint` is clean; the app target builds
-  with one pre-existing Sendable warning in `TriggersSettingsView.swift`.
+- 291 unit tests in 57 suites pass (`swift test`); `swiftlint` is clean; the app target builds
+  with no warnings.
 
 ## Unverified or assumed
 
@@ -228,6 +228,33 @@ driven the gestures.
   triggers, so a trigger's hide still wins) and unit-tested, but this display is 1920 pt wide,
   so it has never held. Dragging an item into Hidden by hand while it holds is learned into the
   file, but the rule then brings the item back into Shown.
+- **Groups (M9).** Model, editing and the keep-together rule are unit-tested (26 tests). Each
+  group gets its own status item; its position asks for the spot left of Somabar's glyph
+  through the undocumented "NSStatusItem Preferred Position" default, which is unconfirmed.
+  Without Accessibility the group glyphs may be scanned as unidentified items. Groups do not
+  show in the Items window; the glyph field saves on Return. Not seen: the glyph row, a
+  member's ⌘-drag pulling the group along, the Groups tab.
+- **Item hot keys.** Registered with the action hot keys through Carbon; clashes are checked
+  both ways and unit-tested. Not seen: a real key press opening an item or group.
+- **Transfers.** A file-system event source on Downloads plus `Progress.addSubscriber`; a 1 s
+  refresh only while something is live. One Expanded row covers all downloads, since rows are
+  keyed by activity kind. Not seen: the Downloads access prompt, which path Safari and Chrome
+  publish progress for, finish detection per browser.
+- **Volume HUD.** CoreAudio listeners plus an event tap that consumes the volume keys when the
+  activity is on, a notch surface exists and Accessibility is trusted; otherwise the keys pass
+  through. The pulse lasts the machine's fixed 2 s, is dropped while Expanded, and plays no
+  feedback sound. Not seen: that the tap suppresses the macOS 26 overlay, AirPods and HDMI.
+- **Agent activity.** A Unix socket (folder 0700, socket 0600, same-user peer with a valid
+  signature, read-only) and `somabar://agent`, both off until "Listen for coding agents" is on.
+  Sessions expire after 10 min. The Allow/Deny reply path (P2 in the PRD, after review) is not
+  built. Not seen: a real Claude Code session through the hook script, "Show terminal".
+- **Menu bar style (M13).** A click-through window per display just below the menu bar draws
+  the tint and hairline. Not seen: whether it shows through the macOS 26 bar and lines up, on
+  notched and external displays, and with auto-hide.
+- **Call and Now Playing controls.** Mute uses the default input device's CoreAudio mute (it
+  mutes every app) and is undone at call end; hang-up presses the call app's own menu item
+  through Accessibility, never "End Meeting". The scrubber seeks through AppleScript; the
+  output picker sets the default output device. Not seen on real call apps, devices or players.
 
 ## Deviations from the PRD
 
@@ -274,13 +301,38 @@ driven the gestures.
 
 ## Not built yet
 
-Transfers, the volume HUD and agent activity in the notch (their ranks exist in
-`ActivityRank`, nothing produces them); mute and hang-up for calls, and the scrubber and
-output device picker for Now Playing (no public API); a "Log Out" button in the spacing
-notice; a real Sparkle key and appcast (the tree ships with an empty `SUPublicEDKey`, so
-updates are off).
+Answering agent prompts from the notch (P2, pending review); a real Sparkle key and appcast
+(the tree ships with an empty `SUPublicEDKey`, so updates are off).
+
+The controller was split into `SomabarController+Reveal`, `+Scan` and `+Menu`; its class
+body is 216 lines.
 
 ## Built since the last verified run (2026-09-26)
+
+- **Menu drill-down in search (1.1).** In the palette, → at the end of the query lists the
+  selected item's menu, read closed through Accessibility (the `AXMenu` under its
+  `AXMenuBarItem`, submenus up to 6 deep). Typing filters the current level and every submenu
+  below it with `ItemSearch` ranking; deeper matches show their path. → or ↩ opens a submenu,
+  ↩ presses an entry with `AXPress`, ← at the start of the query or ⌫ on an empty one goes back.
+  Apps that build their menu only when clicked (Caffeine), macOS's own items and unidentified
+  items show a note. `Sources/SomabarCore/MenuDrillDown.swift`,
+  `Sources/BarEngine/StatusMenuReader.swift`, `App/SearchPaletteMenus.swift`; the shared panel
+  moved to `App/SomabarPanel.swift`. Reading was checked against CleanShot X and CodexBar
+  outside the app; key handling in the palette has not been run.
+- **Groups in the Items window.** Each section lists its groups under headers (glyph, name,
+  count), members in bar order, then ungrouped items (`GroupedItems` in SomabarCore). Groups
+  fold (kept in user defaults) and move to Shown, Hidden or Tucked from the header or the
+  right-click menu: the layout changes, then the rescan and reconciler move the members.
+  Right-clicking an item adds it to a group or a new group, or takes it out. Moves are disabled
+  without Accessibility access.
+- **One Expanded row per download.** Several downloads show a summary row and a line each
+  (name, bytes and time left, bar, Show in Finder, Cancel when the `NSProgress` is
+  cancellable), at most 4 then "and N more"; one download is the row itself.
+  `TransferLines` and `TransferText.timeLeft` in `Sources/NotchKit/Transfers.swift`. Expanded
+  can reach about 490 pt with two activities and four lines.
+- **Log Out in the spacing notice.** "Log Out…" confirms, then runs `tell application "System
+  Events" to log out`; a refused Automation permission is explained.
+  `NSAppleEventsUsageDescription` now mentions it.
 
 - Slice 4: `App/Updates/` (Sparkle 2, the Updates settings section), `App/Spacing/` (the
   spacing defaults and the notice; `Spacing` in SomabarCore knows its values),

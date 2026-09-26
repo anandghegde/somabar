@@ -88,11 +88,56 @@ extension SomabarController {
         Task { @MainActor in self.showSpacingNotice() }
     }
 
+    /// The notice offers to log out now; that asks once more, since apps get asked to quit.
     private func showSpacingNotice() {
         let alert = NSAlert()
         alert.messageText = "Spacing applies to apps opened from now on"
         alert.informativeText = "Apps that are already running keep their current spacing until they restart. "
             + "Logging out and back in applies the new spacing to every item in the menu bar."
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Log Out…")
+        NSApp.activate()
+        guard alert.runModal() == .alertSecondButtonReturn, confirmLogOut() else { return }
+        StatusItemSpacing.logOut()
+    }
+
+    private func confirmLogOut() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Log out now?"
+        alert.informativeText = "Every app will be asked to quit. Apps with unsaved changes may ask you to save them first."
+        alert.addButton(withTitle: "Log Out")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+}
+
+// MARK: - Log out
+
+extension StatusItemSpacing {
+    /// Apple event errors: Automation is off for System Events, and an app cancelled the log-out.
+    private static let notPermitted = -1743
+    private static let userCancelled = -128
+
+    /// Logs out through System Events, which asks every app to quit.
+    /// Needs the Automation permission for System Events; without it, says where to turn it on.
+    static func logOut() {
+        guard let script = NSAppleScript(source: "tell application \"System Events\" to log out") else { return }
+        log.notice("Logging out to apply item spacing")
+        var error: NSDictionary?
+        script.executeAndReturnError(&error)
+        guard let error else { return }
+        let number = error[NSAppleScript.errorNumber] as? Int ?? 0
+        guard number != userCancelled else {
+            log.notice("Log-out cancelled")
+            return
+        }
+        log.error("Could not log out through System Events (\(number))")
+        let alert = NSAlert()
+        alert.messageText = "Somabar could not log out"
+        alert.informativeText = number == notPermitted
+            ? "Allow Somabar to control System Events in System Settings › Privacy & Security › Automation, "
+                + "or choose Log Out from the Apple menu."
+            : "Choose Log Out from the Apple menu instead."
         alert.addButton(withTitle: "OK")
         NSApp.activate()
         alert.runModal()

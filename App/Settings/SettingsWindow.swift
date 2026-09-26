@@ -15,6 +15,9 @@ struct SettingsView: View {
             Tab("Profiles", systemImage: "person.2") {
                 ProfilesSettingsView(model: model)
             }
+            Tab("Groups", systemImage: "square.grid.2x2") {
+                GroupsSettingsView(model: model)
+            }
             Tab("Triggers", systemImage: "bolt") {
                 TriggersSettingsView(model: model)
             }

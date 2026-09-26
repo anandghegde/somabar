@@ -194,3 +194,76 @@ final class SettingsModel {
         controller?.saveDocument(reason: reason)
     }
 }
+
+// MARK: - Groups and item hot keys
+
+extension SettingsModel {
+    @discardableResult
+    func addGroup() -> UUID? {
+        var id: UUID?
+        try? editGroups("Settings: added a group") { id = $0.addGroup() }
+        return id
+    }
+
+    func renameGroup(_ id: UUID, to newName: String) throws(GroupEditError) {
+        try editGroups("Settings: renamed a group") { (document: inout SomabarDocument) throws(GroupEditError) in
+            try document.renameGroup(id, to: newName)
+        }
+    }
+
+    func setGroupGlyph(_ id: UUID, to glyph: String) {
+        try? editGroups("Settings: group glyph") { (document: inout SomabarDocument) throws(GroupEditError) in
+            try document.setGroupGlyph(id, to: glyph)
+        }
+    }
+
+    func setGroupMembers(_ id: UUID, _ members: [ItemKey]) throws(GroupEditError) {
+        try editGroups("Settings: group members") { (document: inout SomabarDocument) throws(GroupEditError) in
+            try document.setGroupMembers(id, members)
+        }
+    }
+
+    func moveGroup(_ id: UUID, to section: Section) {
+        try? editGroups("Settings: moved a group to \(section.displayName)") { (document: inout SomabarDocument) throws(GroupEditError) in
+            try document.moveGroup(id, to: section)
+        }
+    }
+
+    func removeGroup(_ id: UUID) {
+        try? editGroups("Settings: removed a group") { $0.removeGroup(id) }
+    }
+
+    private func editGroups(_ reason: String, _ edit: (inout SomabarDocument) throws(GroupEditError) -> Void) throws(GroupEditError) {
+        guard let controller else { return }
+        var document = controller.document
+        try edit(&document)
+        guard document != controller.document else { return }
+        controller.document = document
+        controller.groupsDidChange()
+        changed(reason)
+    }
+
+    func addItemHotKey(for target: HotKeyTarget) {
+        guard let controller else { return }
+        controller.document.addItemHotKey(for: target)
+        changed("Settings: hot key row for \(controller.document.label(for: target))")
+    }
+
+    func removeItemHotKey(for target: HotKeyTarget) {
+        guard let controller else { return }
+        controller.document.removeItemHotKey(for: target)
+        controller.hotkeysDidChange()
+        changed("Settings: removed the hot key for \(controller.document.label(for: target))")
+    }
+
+    /// Nil when saved; the clash otherwise, and nothing changes.
+    func setCombo(_ combo: KeyCombo?, for target: HotKeyTarget) -> HotkeyClash? {
+        guard let controller else { return nil }
+        if let clash = controller.document.setCombo(combo, for: target) {
+            return clash
+        }
+        controller.hotkeysDidChange()
+        changed("Settings: hot key for \(controller.document.label(for: target))")
+        return nil
+    }
+}

@@ -11,6 +11,8 @@ public enum HotkeyClash: Equatable, Sendable {
     case action(HotkeyAction)
     /// macOS or a well-known system feature owns it.
     case system(String)
+    /// An item's or group's own hot key has it; the label names which.
+    case item(String)
 
     /// Combos macOS keeps for itself. Carbon lets an app register some of them, and then one of
     /// the two silently loses.
@@ -41,6 +43,7 @@ public enum HotkeyClash: Equatable, Sendable {
         switch self {
         case .action(let other): "Already used for “\(other.displayName)”"
         case .system(let owner): "\(owner) uses this shortcut"
+        case .item(let label): "Already opens \(label)"
         }
     }
 }
@@ -50,7 +53,7 @@ extension SomabarDocument {
     /// left as it was.
     @discardableResult
     public mutating func setCombo(_ combo: KeyCombo?, for action: HotkeyAction) -> HotkeyClash? {
-        if let combo, let clash = HotkeyClash.find(combo, for: action, in: hotkeys) {
+        if let combo, let clash = clash(for: combo, owner: .action(action)) {
             return clash
         }
         if let index = hotkeys.firstIndex(where: { $0.action == action }) {

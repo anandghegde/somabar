@@ -34,6 +34,9 @@ struct CompactPresentation: Equatable {
     /// Album artwork or an app icon in place of the glyph.
     var image: NSImage?
     var accessibilityLabel: String
+    /// A progress ring in place of the glyph (Transfers); `ringFraction` nil draws it unknown.
+    var showsRing = false
+    var ringFraction: Double?
 }
 
 /// A button in an Expanded row: at least 44 pt square, with a VoiceOver label.
@@ -55,6 +58,14 @@ struct ActivityRow: Identifiable {
     /// 0...1 for a static progress bar, redrawn on the activity's own tick.
     var progress: Double?
     var controls: [ActivityControl] = []
+    /// A slider in place of `progress` (Now Playing).
+    var scrubber: ActivityScrubber?
+    /// A pick-from-a-list button after the controls (Now Playing's output).
+    var menu: ActivityMenu?
+    /// Lines under the row, one per item it sums up (Transfers' downloads), and a last line
+    /// for the ones left out ("and 3 more").
+    var lines: [ActivityLine] = []
+    var linesFooter: String?
 
     var accessibilityLabel: String {
         detail.isEmpty ? title : "\(title), \(detail)"

@@ -39,6 +39,12 @@ extension SomabarController {
         if new.spacing != old.spacing {
             spacingDidChange()
         }
+        if new.agentSocket != old.agentSocket {
+            activities.agents.setListening(new.agentSocket)
+        }
+        if new.menuBarStyle != old.menuBarStyle {
+            applyMenuBarStyle()
+        }
     }
 
     /// A profile was renamed, added or removed. Triggers may name it; the active one may be new.

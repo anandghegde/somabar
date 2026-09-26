@@ -50,8 +50,8 @@ targets:
         NSCameraUsageDescription: "Somabar only checks whether another app is using the camera, for your triggers. It never captures video."
         NSMicrophoneUsageDescription: "Somabar only checks whether another app is using the microphone, for your triggers. It never records audio."
         # Now Playing in the notch: the track's position, its artwork and the play controls for
-        # Music and Spotify go over AppleScript.
-        NSAppleEventsUsageDescription: "Somabar shows what Music or Spotify is playing in the notch and passes on play, pause and skip."
+        # Music and Spotify go over AppleScript; so does the spacing notice's Log Out (System Events).
+        NSAppleEventsUsageDescription: "Somabar shows what Music or Spotify is playing in the notch and passes on play, pause, skip and seeking. It asks System Events to log you out only when you choose Log Out."
         # Sparkle 2. Updates stay off until both are non-empty. Paste the public key printed by
         # Sparkle's generate_keys into SUPublicEDKey; the private key stays in your keychain.
         SUFeedURL: https://github.com/anandghegde/somabar/releases/latest/download/appcast.xml
@@ -62,7 +62,7 @@ targets:
     entitlements:
       path: App/Support/Somabar.entitlements
       properties:
-        # Hardened runtime blocks Apple events without this (Now Playing's AppleScript).
+        # Hardened runtime blocks Apple events without this (Now Playing's AppleScript, Log Out).
         com.apple.security.automation.apple-events: true
     settings:
       base:

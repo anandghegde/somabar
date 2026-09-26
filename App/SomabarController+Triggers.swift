@@ -43,7 +43,7 @@ extension SomabarController {
         }
 
         let hadProfileMemory = document.profileBeforeTriggers != nil
-        let outcome = triggers.apply(evaluator.effects(of: holding, in: snapshot), to: &document)
+        let outcome = triggers.apply(evaluator.effects(of: holding, in: snapshot, groups: document.groups), to: &document)
         if let name = outcome.unknownProfile {
             triggerLog.error("A trigger asks for the profile \(name, privacy: .public), which the layout file does not have")
         }

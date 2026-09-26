@@ -117,6 +117,18 @@ final class NowPlayingWatcher {
         _ = Self.run("tell application \"\(player.scriptName)\" to \(command.rawValue)", player: player)
     }
 
+    /// Moves the playhead: `set player position to …`, which Music and Spotify both take.
+    func seek(to seconds: Double) {
+        guard var current = track, seconds.isFinite else { return }
+        let target = max(0, current.duration.map { min(seconds, $0) } ?? seconds)
+        let script = "tell application \"\(current.player.scriptName)\" to set player position to \(String(format: "%.1f", target))"
+        guard Self.run(script, player: current.player) != nil else { return }
+        current.position = target
+        current.readAt = Date().timeIntervalSinceReferenceDate
+        track = current
+        onChange?()
+    }
+
     /// Runs a one-line script, only while the player is running: `tell application` would
     /// otherwise launch it.
     private static func run(_ source: String, player: MediaPlayer) -> NSAppleEventDescriptor? {

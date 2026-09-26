@@ -85,6 +85,10 @@ public enum TriggerAction: Codable, Equatable, Sendable {
     /// Moves the item to Hidden while the condition holds.
     case hide(ItemKey)
     case switchProfile(name: String)
+    /// Moves every member of the group to Shown while the condition holds.
+    case showGroup(UUID)
+    /// Moves every member of the group to Hidden while the condition holds.
+    case hideGroup(UUID)
 }
 
 /// *When [condition], [show item / hide item / switch profile], until [condition ends].*

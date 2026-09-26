@@ -8,11 +8,15 @@ struct TriggerEditorView: View {
         case show
         case hide
         case switchProfile
+        case showGroup
+        case hideGroup
     }
 
     let original: Trigger
     let items: [ItemChoice]
     let profiles: [String]
+    /// Groups a show or hide can act on (M9).
+    let groups: [ItemGroup]
     var onSave: (Trigger) -> Void
     var onCancel: () -> Void
 
@@ -23,10 +27,16 @@ struct TriggerEditorView: View {
     @State private var actionKind: ActionKind
     @State private var item: ItemKey?
     @State private var profile: String
+    @State private var group: UUID?
 
-    init(trigger: Trigger, items: [ItemChoice], profiles: [String], onSave: @escaping (Trigger) -> Void, onCancel: @escaping () -> Void) {
+    init(
+        trigger: Trigger, items: [ItemChoice], profiles: [String], groups: [ItemGroup] = [],
+        onSave: @escaping (Trigger) -> Void, onCancel: @escaping () -> Void
+    ) {
         original = trigger
         self.profiles = profiles
+        self.groups = groups
+        _group = State(initialValue: trigger.action.group ?? groups.first?.id)
         self.onSave = onSave
         self.onCancel = onCancel
         _name = State(initialValue: trigger.name)
@@ -45,6 +55,14 @@ struct TriggerEditorView: View {
             _actionKind = State(initialValue: .switchProfile)
             _item = State(initialValue: items.first?.key)
             _profile = State(initialValue: target)
+        case .showGroup:
+            _actionKind = State(initialValue: .showGroup)
+            _item = State(initialValue: items.first?.key)
+            _profile = State(initialValue: profiles.first ?? "")
+        case .hideGroup:
+            _actionKind = State(initialValue: .hideGroup)
+            _item = State(initialValue: items.first?.key)
+            _profile = State(initialValue: profiles.first ?? "")
         }
         self.items = choices
     }
@@ -125,8 +143,19 @@ struct TriggerEditorView: View {
                 Text("Show an item").tag(ActionKind.show)
                 Text("Hide an item").tag(ActionKind.hide)
                 Text("Switch profile").tag(ActionKind.switchProfile)
+                if !groups.isEmpty || original.action.group != nil {
+                    Text("Show a group").tag(ActionKind.showGroup)
+                    Text("Hide a group").tag(ActionKind.hideGroup)
+                }
             }
-            if actionKind == .switchProfile {
+            if actionKind == .showGroup || actionKind == .hideGroup {
+                Picker("Group", selection: $group) {
+                    if let group, !groups.contains(where: { $0.id == group }) {
+                        Text("Removed group").tag(UUID?.some(group))
+                    }
+                    ForEach(groups) { Text($0.name).tag(UUID?.some($0.id)) }
+                }
+            } else if actionKind == .switchProfile {
                 Picker("Profile", selection: $profile) {
                     if !profiles.contains(profile) {
                         Text("\(profile) (missing)").tag(profile)
@@ -169,6 +198,12 @@ struct TriggerEditorView: View {
         case .switchProfile:
             guard !profile.isEmpty else { return nil }
             action = .switchProfile(name: profile)
+        case .showGroup:
+            guard let group else { return nil }
+            action = .showGroup(group)
+        case .hideGroup:
+            guard let group else { return nil }
+            action = .hideGroup(group)
         }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return Trigger(id: original.id, name: trimmed, isEnabled: isEnabled, condition: condition, action: action)

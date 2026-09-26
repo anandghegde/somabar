@@ -52,7 +52,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            controller?.handle(url)
+            // Agent reports come often and are not commands, so they skip the URL log.
+            if url.host()?.lowercased() == "agent" {
+                controller?.handleAgentURL(url)
+            } else {
+                controller?.handle(url)
+            }
         }
     }
 

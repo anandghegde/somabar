@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh working" }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh working" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh needsYou" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh done" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh ended" }] }
+    ]
+  }
+}

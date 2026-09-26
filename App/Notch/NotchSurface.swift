@@ -63,7 +63,7 @@ final class NotchSurface: NSObject {
     init?(screen: NSScreen, geometry: NotchGeometry, controller: SomabarController) {
         guard let notch = geometry.notch,
               let widest = geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide),
-              let expanded = geometry.expandedFrame(size: Self.expandedSize(rows: Self.maxActivityRows))
+              let expanded = geometry.expandedFrame(size: Self.expandedSize(rows: Self.maxActivityRows, linesHeight: ActivityRow.maxLinesHeight))
         else { return nil }
         self.geometry = geometry
         self.controller = controller
@@ -124,9 +124,10 @@ final class NotchSurface: NSObject {
     // MARK: - Events
 
     /// A one-off event: the notch shows `text` for 2 s.
-    func pulse(text: String, symbol: String = "bell.fill") {
+    func pulse(text: String, symbol: String = "bell.fill", level: Double? = nil) {
         model.pulseText = text
         model.pulseSymbol = symbol
+        model.pulseLevel = level
         log.info("Pulse: \(text, privacy: .public)")
         send(.oneOffEvent)
     }
@@ -215,7 +216,7 @@ final class NotchSurface: NSObject {
         case .compact where widensCompact: geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide)
         case .compact: geometry.compactFrame(extensionPerSide: geometry.isDrawn ? 0 : Self.compactExtension)
         case .pulse: geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide)
-        case .expanded: geometry.expandedFrame(size: Self.expandedSize(rows: model.activities.count))
+        case .expanded: geometry.expandedFrame(size: Self.expandedSize(rows: model.activities))
         }
     }
 
@@ -285,10 +286,16 @@ final class NotchSurface: NSObject {
         }
     }
 
-    /// Expanded with room for `rows` activity rows.
-    private static func expandedSize(rows: Int) -> CGSize {
+    /// Expanded with room for the rows it shows and their lines.
+    private static func expandedSize(rows: [ActivityRow]) -> CGSize {
+        let shown = rows.prefix(maxActivityRows)
+        return expandedSize(rows: shown.count, linesHeight: shown.reduce(0) { $0 + $1.linesHeight })
+    }
+
+    /// Expanded with room for `rows` activity rows and `linesHeight` of lines under them.
+    private static func expandedSize(rows: Int, linesHeight: CGFloat) -> CGSize {
         let rows = min(max(rows, 0), maxActivityRows)
-        return CGSize(width: expandedSize.width, height: expandedSize.height + CGFloat(rows) * activityRowHeight)
+        return CGSize(width: expandedSize.width, height: expandedSize.height + CGFloat(rows) * activityRowHeight + linesHeight)
     }
 
     private func local(_ rect: CGRect) -> CGRect {
@@ -410,7 +417,9 @@ extension NotchSurface {
     /// machine when Compact starts or ends; a change of winner cross-fades.
     func showActivities(compact: CompactPresentation?, rows: [ActivityRow], widened: Bool) {
         let winnerChanged = model.compact?.kind != compact?.kind
+        // A download starting or ending changes the lines, and with them the height.
         let rowsChanged = model.activities.map(\.id) != rows.map(\.id)
+            || model.activities.map(\.linesHeight) != rows.map(\.linesHeight)
         if winnerChanged || rowsChanged {
             let animation: Animation = stillMode ? .easeInOut(duration: 0.2) : .spring(response: Self.animationSeconds, dampingFraction: 0.82)
             withAnimation(animation) {

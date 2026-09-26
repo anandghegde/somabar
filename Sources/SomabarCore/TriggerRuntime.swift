@@ -106,10 +106,17 @@ public struct TriggerRuntime: Equatable, Sendable {
 extension TriggerAction {
     /// "show Docker", "hide Slack", "switch to Presenting".
     public var summary: String {
+        summary(groups: [])
+    }
+
+    /// The summary with group names filled in: "show group Dev".
+    public func summary(groups: [ItemGroup]) -> String {
         switch self {
         case .show(let key): "show \(key.description)"
         case .hide(let key): "hide \(key.description)"
         case .switchProfile(let name): "switch to \(name)"
+        case .showGroup(let id): "show group \(groups.first { $0.id == id }?.name ?? "(removed)")"
+        case .hideGroup(let id): "hide group \(groups.first { $0.id == id }?.name ?? "(removed)")"
         }
     }
 }

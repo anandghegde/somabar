@@ -38,6 +38,8 @@ extension SomabarController {
         let baseline = ScanBaseline(before: before, desired: desired, previous: previous, adoptEverything: adoptEverything, managed: managed)
         var sorted = Self.sort(seen: seen, against: baseline)
         var layout = sorted.layout
+        // Groups move together (M9): a member the person dragged pulls the rest of its group.
+        let followers = layout.keepGroupsTogether(document.groups, moved: sorted.movedByPerson)
         let newKeys = sorted.newKeys
         for key in newKeys where adoptEverything || managed.contains(key) {
             layout.insertIfNew(key, in: seen.section(of: key) ?? .shown)
@@ -51,6 +53,8 @@ extension SomabarController {
         let guarded = guardNotch(&profile, observed: observed, managed: managed)
         document.update(profile)
         suspendTriggers(for: sorted.movedByPerson)
+
+        sorted.drifts += groupFollowerDrifts(followers, seen: seen)
 
         let arrivals = document.insertNewItems(newKeys.filter { !managed.contains($0) })
         for key in arrivals where !adoptEverything {
@@ -72,6 +76,18 @@ extension SomabarController {
             log.info("Drift: \(summary.joined(separator: ", "), privacy: .public)")
         }
         return document != lastSavedDocument
+    }
+
+    /// Group members that followed a dragged member (M9) but are not where the layout now
+    /// wants them, so the reconciler moves them.
+    private func groupFollowerDrifts(_ followers: [ItemKey], seen: Layout) -> [Drift] {
+        guard !followers.isEmpty else { return [] }
+        log.notice("Group members followed: \(followers.map(\.description).joined(separator: ", "), privacy: .public)")
+        let wanted = effectiveLayout
+        return followers.compactMap { key in
+            guard let expected = wanted.section(of: key), let actual = seen.section(of: key), actual != expected else { return nil }
+            return Drift(item: key, expected: expected, actual: actual)
+        }
     }
 
     /// What the bar shows, split into learned moves (applied to the layout), unknown items, and drift.

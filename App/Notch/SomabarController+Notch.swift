@@ -30,6 +30,7 @@ extension SomabarController {
 
     /// At quit: the surface and the activities feeding it.
     func stopNotchSurface() {
+        stopMenuBarStyle()
         activities.stop()
         notchSurface?.stop()
         notchSurface = nil
@@ -69,6 +70,12 @@ extension SomabarController {
         }
         activities.start(snapshot: context.snapshot)
         activities.attach(notchSurface)
+        activities.agents.setListening(document.preferences.agentSocket)
+    }
+
+    /// `somabar://agent?session=…&state=…`: a coding agent's report (N11).
+    func handleAgentURL(_ url: URL) {
+        activities.agents.receive(url: url)
     }
 
     /// New items noticed by a scan pulse the notch.
@@ -121,10 +128,12 @@ extension SomabarController {
         context.onDisplaysChanged = { [weak self] in self?.displaysChanged() }
         startActivities()
         evaluateDisplayRules(reason: "launch")
+        applyMenuBarStyle()
     }
 
     func displaysChanged() {
         evaluateDisplayRules(reason: "displays changed")
+        applyMenuBarStyle()
         // The notification also fires for changes that leave the notch where it was.
         if let current = notchSurface, let screen = Self.notchScreen(preferences: document.preferences),
            screen.frame == current.screenFrame,

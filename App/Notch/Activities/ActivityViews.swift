@@ -27,7 +27,9 @@ struct CompactActivityView: View {
     }
 
     @ViewBuilder private var glyph: some View {
-        if let image = compact.image {
+        if compact.showsRing {
+            ProgressRing(fraction: compact.ringFraction)
+        } else if let image = compact.image {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()
@@ -48,28 +50,44 @@ struct ActivityRowView: View {
     let row: ActivityRow
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if !row.lines.isEmpty {
+                ActivityLinesView(lines: row.lines, footer: row.linesFooter)
+                    .padding(.top, ActivityLine.spacing)
+            }
+        }
+    }
+
+    private var header: some View {
         HStack(spacing: 8) {
             leading
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                if !row.detail.isEmpty {
-                    Text(row.detail)
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.6))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.title)
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
+                    if !row.detail.isEmpty {
+                        Text(row.detail)
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
+                    if row.scrubber == nil, let progress = row.progress {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .tint(.white)
+                            .controlSize(.mini)
+                            .accessibilityLabel("Progress")
+                    }
                 }
-                if let progress = row.progress {
-                    ProgressView(value: progress)
-                        .progressViewStyle(.linear)
-                        .tint(.white)
-                        .controlSize(.mini)
-                        .accessibilityLabel("Progress")
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(row.accessibilityLabel)
+                // Outside the combined label, so VoiceOver can adjust it.
+                if let scrubber = row.scrubber {
+                    ScrubberView(scrubber: scrubber)
                 }
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(row.accessibilityLabel)
             Spacer(minLength: 0)
             ForEach(row.controls) { control in
                 Button(action: control.action) {
@@ -81,6 +99,9 @@ struct ActivityRowView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(control.label)
                 .help(control.label)
+            }
+            if let menu = row.menu {
+                ActivityMenuView(menu: menu)
             }
         }
         .frame(minHeight: Self.controlSize)

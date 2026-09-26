@@ -20,6 +20,8 @@ struct TrayTile: Identifiable {
 struct TrayGroup: Identifiable {
     var section: SomabarCore.Section
     var tiles: [TrayTile]
+    /// Replaces the section's name as the heading; a group's row shows the group's name.
+    var title: String?
 
     var id: SomabarCore.Section { section }
 }
@@ -29,6 +31,8 @@ struct TrayGroup: Identifiable {
 final class TrayModel {
     var groups: [TrayGroup] = []
     var profileName = ""
+    /// Shown when there are no tiles; nil means "Nothing is hidden in <profile>".
+    var emptyMessage: String?
 }
 
 struct TrayView: View {
@@ -41,13 +45,13 @@ struct TrayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if model.groups.allSatisfy(\.tiles.isEmpty) {
-                Text("Nothing is hidden in \(model.profileName)")
+                Text(model.emptyMessage ?? "Nothing is hidden in \(model.profileName)")
                     .foregroundStyle(.secondary)
                     .frame(width: Self.tileWidth * 3)
                     .padding(.vertical, 12)
             }
             ForEach(model.groups.filter { !$0.tiles.isEmpty }) { group in
-                Text(group.section.displayName)
+                Text(group.title ?? group.section.displayName)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
@@ -130,9 +134,10 @@ final class TrayWindowController: NSObject, NSWindowDelegate {
     }
 
     /// Shows `groups` on `screen`, under the glyph when the glyph is on that screen.
-    func present(groups: [TrayGroup], profileName: String, screen: NSScreen, glyphFrame: NSRect?) {
+    func present(groups: [TrayGroup], profileName: String, screen: NSScreen, glyphFrame: NSRect?, emptyMessage: String? = nil) {
         model.groups = groups
         model.profileName = profileName
+        model.emptyMessage = emptyMessage
         hosting.layoutSubtreeIfNeeded()
         let size = hosting.fittingSize
         let frame = Self.frame(
@@ -179,25 +184,28 @@ extension SomabarController {
         let layout = effectiveLayout
         let present = Dictionary(items.filter(\.isIdentified).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         let groups = [SomabarCore.Section.hidden, .tucked].map { section in
-            TrayGroup(section: section, tiles: layout[section].map { key in
-                let item = present[key]
-                let appName = item?.appName ?? key.bundleID
-                var title = key.title.isEmpty ? appName : key.title
-                if key.ordinal > 0 {
-                    title += " (\(key.ordinal + 1))"
-                }
-                return TrayTile(
-                    key: key, title: title, appName: appName,
-                    icon: itemImage(windowID: item?.windowID, bundleID: key.bundleID, pid: item?.pid), windowID: item?.windowID
-                )
-            })
+            TrayGroup(section: section, tiles: layout[section].map { trayTile(for: $0, present: present) })
         }
         trayWindow?.present(groups: groups, profileName: document.active.name, screen: screen, glyphFrame: engine.controlButton?.window?.frame)
     }
 
+    /// One tile; `present` is what the bar shows now, by key.
+    func trayTile(for key: ItemKey, present: [ItemKey: DiscoveredItem]) -> TrayTile {
+        let item = present[key]
+        let appName = item?.appName ?? key.bundleID
+        var title = key.title.isEmpty ? appName : key.title
+        if key.ordinal > 0 {
+            title += " (\(key.ordinal + 1))"
+        }
+        return TrayTile(
+            key: key, title: title, appName: appName,
+            icon: itemImage(windowID: item?.windowID, bundleID: key.bundleID, pid: item?.pid), windowID: item?.windowID
+        )
+    }
+
     /// The built-in display when the display rule asks for it and there is one, else the screen
     /// with the pointer.
-    private var trayScreen: NSScreen? {
+    var trayScreen: NSScreen? {
         if document.preferences.displayRules.trayOnlyOnBuiltInDisplay, let builtIn = ScreenGeometry.builtInScreen {
             return builtIn
         }

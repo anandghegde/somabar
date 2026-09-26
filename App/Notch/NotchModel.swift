@@ -18,6 +18,8 @@ final class NotchModel {
 
     var pulseText = ""
     var pulseSymbol = "bell.fill"
+    /// 0...1 for a pulse drawn as a slim bar (the volume HUD); nil for a plain one.
+    var pulseLevel: Double?
     /// The live activity that won Compact (`ActivityCenter`); nil when none did.
     var compact: CompactPresentation?
     /// The live activities listed in Expanded, highest priority first. The timer has its own row.

@@ -7,7 +7,10 @@ import SomabarCore
 ///
 /// Sources: the timer (on the surface), calls (the context's microphone and camera state),
 /// Now Playing (Music and Spotify notifications), file drags (drop to share), power changes
-/// (charging pulses), the Focus (pulses) and screen sharing (the guard's red dot). Every change
+/// (charging pulses), the Focus (pulses), screen sharing (the guard's red dot), downloads
+/// (`TransfersWatcher`), the output volume (`VolumeWatcher`, pulses) and coding agents'
+/// hooks (`AgentChannel`). Calls get mute and hang up from `CallControls`; Now Playing gets a
+/// scrubber and the audio outputs (`AudioOutputs`). Every change
 /// rebuilds the list and hands it to `ActivityBoard`, which applies the profile's switches and
 /// the screen-share rule; the winner goes to Compact and the rest to Expanded. A 1 s tick runs
 /// only while a call or a track is counting.
@@ -25,6 +28,11 @@ final class ActivityCenter {
     private let charging = ChargingWatcher()
     private let nowPlaying = NowPlayingWatcher()
     private let drop = DropToShareWatcher()
+    private let transfers = TransfersWatcher()
+    private let volume = VolumeWatcher()
+    let agents = AgentChannel()
+    private let callControls = CallControls()
+    private let outputs = AudioOutputs()
     private var tickTask: Task<Void, Never>?
 
     /// When each activity became live, so the older of two equal ranks keeps Compact.
@@ -49,6 +57,13 @@ final class ActivityCenter {
         charging.onPulse = { [weak self] text, symbol in self?.pulse(.charging, text: text, symbol: symbol) }
         nowPlaying.onChange = { [weak self] in self?.refresh() }
         drop.onDragChanged = { [weak self] _ in self?.refresh() }
+        transfers.onChange = { [weak self] in self?.refresh() }
+        transfers.onFinish = { [weak self] finishes in self?.transfersFinished(finishes) }
+        volume.onChange = { [weak self] level, muted in self?.volumeChanged(level: level, muted: muted) }
+        volume.canShow = { [weak self] in self?.surface != nil }
+        agents.onChange = { [weak self] in self?.refresh() }
+        agents.onPulse = { [weak self] pulse in self?.pulse(.agentActivity, text: pulse.text, symbol: pulse.symbol) }
+        outputs.onChange = { [weak self] in self?.refresh() }
         charging.start()
         syncSources()
         refresh()
@@ -61,6 +76,10 @@ final class ActivityCenter {
         charging.stop()
         nowPlaying.stop()
         drop.stop()
+        transfers.stop()
+        volume.stop()
+        outputs.stop()
+        agents.setListening(false)
         tickTask?.cancel()
         tickTask = nil
     }
@@ -115,21 +134,51 @@ final class ActivityCenter {
         if settings.enabledActivities.contains(.nowPlaying) {
             nowPlaying.start()
             nowPlaying.settingsChanged()
+            outputs.start()
         } else {
             nowPlaying.stop()
+            outputs.stop()
         }
         if settings.enabledActivities.contains(.dropToShare), surface != nil {
             drop.start()
         } else {
             drop.stop()
         }
+        syncTransferAndVolumeSources(settings)
+    }
+
+    /// N6 watches Downloads only while switched on. N7 takes the volume keys only while there
+    /// is a notch to show the level in; without one the system's overlay stays.
+    private func syncTransferAndVolumeSources(_ settings: NotchSettings) {
+        if settings.enabledActivities.contains(.transfers) {
+            transfers.start()
+        } else {
+            transfers.stop()
+        }
+        if settings.enabledActivities.contains(.volumeHUD) {
+            volume.start(interceptsKeys: surface != nil)
+        } else {
+            volume.stop()
+        }
     }
 
     // MARK: - Pulses
 
-    private func pulse(_ kind: ActivityKind, text: String, symbol: String) {
+    private func pulse(_ kind: ActivityKind, text: String, symbol: String, level: Double? = nil) {
         guard settings().enabledActivities.contains(kind), let surface else { return }
-        surface.pulse(text: text, symbol: symbol)
+        surface.pulse(text: text, symbol: symbol, level: level)
+    }
+
+    /// N6: "Downloaded · report.pdf" when downloads finish; their row has already gone.
+    private func transfersFinished(_ finishes: [TransferFinish]) {
+        guard let text = TransferText.finished(finishes, showsNames: settings().showsArtworkAndFileNames) else { return }
+        pulse(.transfers, text: text, symbol: "arrow.down.circle.fill")
+    }
+
+    /// N7: the slim bar, for every change of level or mute.
+    private func volumeChanged(level: Float, muted: Bool) {
+        pulse(.volumeHUD, text: VolumeText.pulse(level: level, muted: muted),
+              symbol: VolumeText.symbol(level: level, muted: muted), level: Double(level))
     }
 
     /// N8: a pulse when the Focus changes.
@@ -183,6 +232,14 @@ final class ActivityCenter {
         if let track = nowPlaying.track, track.isPlaying {
             result.append(nowPlayingActivity(track, now: now, settings: settings))
         }
+        if !transfers.live.isEmpty, let activity = NotchActivity.transfers(
+            transfers.live, startedAt: since(.transfers, now: now), now: now, settings: settings, watcher: transfers) {
+            result.append(activity)
+        }
+        if !agents.table.isEmpty,
+           let agent = NotchActivity.agents(agents, startedAt: since(.agentActivity, now: now), settings: settings) {
+            result.append(agent)
+        }
         if snapshot.isScreenShared {
             result.append(screenShareActivity(now: now))
         }
@@ -228,6 +285,8 @@ final class ActivityCenter {
     private func callActivity(now: Double) -> NotchActivity? {
         let microphone = snapshot.microphoneInUse
         let camera = snapshot.cameraInUse
+        let callApp = CallHangUp.appBundleID(runningApps: snapshot.runningApps, frontmostApp: snapshot.frontmostApp)
+        callControls.update(isCallLive: microphone || camera, callApp: callApp, now: now)
         guard microphone || camera else { return nil }
         let started = since(.call, now: now)
         let length = ActivityText.elapsed(seconds: now - started)
@@ -235,14 +294,16 @@ final class ActivityCenter {
         let device = CallSource.deviceTitle(microphone: microphone, camera: camera)
         let symbol = camera ? "video.fill" : "mic.fill"
         let spoken = (app.map { "Call in \($0)" } ?? device) + ", \(length)"
+        let extras = callControls.rowControls { [weak self] in self?.refresh() }
         return NotchActivity(
             kind: .call, rank: .call, startedAt: started,
             compact: CompactPresentation(
                 kind: .call, symbol: symbol, text: length, tint: .inUse, showsDot: true, accessibilityLabel: spoken),
-            // Mute and hang up need each app's private API, so the row has no controls.
+            // Mute is the default input's own; hang up is the app's menu item (`CallControls`).
             row: ActivityRow(
                 id: .call, symbol: symbol, title: app ?? device,
-                detail: app == nil ? length : "\(length) · \(device)", tint: .inUse))
+                detail: ([app == nil ? length : "\(length) · \(device)"] + [extras.muteText].compactMap { $0 }).joined(separator: " · "),
+                tint: .inUse, controls: extras.controls))
     }
 
     // MARK: - N2 Timer
@@ -297,7 +358,27 @@ final class ActivityCenter {
                     watcher.send(.playPause)
                 },
                 ActivityControl(symbol: "forward.fill", label: "Next track") { watcher.send(.next) },
-            ])
+            ],
+            scrubber: scrubber(for: track, now: now),
+            menu: outputMenu())
+    }
+
+    /// N1: a slider in place of the progress bar, when the player told the length and place.
+    private func scrubber(for track: NowPlayingTrack, now: Double) -> ActivityScrubber? {
+        guard let duration = track.duration, duration > 0, let position = track.position(at: now) else { return nil }
+        let watcher = nowPlaying
+        return ActivityScrubber(position: position, duration: duration) { watcher.seek(to: $0) }
+    }
+
+    /// N1: the Mac's audio outputs (AirPlay and Bluetooth included), when there is a choice.
+    private func outputMenu() -> ActivityMenu? {
+        guard outputs.devices.count > 1 else { return nil }
+        let outputs = outputs
+        let items = outputs.devices.map {
+            ActivityMenu.Item(id: $0.id, title: $0.name, symbol: $0.symbol, isSelected: $0.id == outputs.defaultDevice)
+        }
+        let label = outputs.defaultName.map { "Audio output: \($0)" } ?? "Audio output"
+        return ActivityMenu(symbol: "airplayaudio", label: label, items: items) { outputs.select($0) }
     }
 
     /// Music's artwork when the profile shows artwork; otherwise, and for Spotify, the app icon.

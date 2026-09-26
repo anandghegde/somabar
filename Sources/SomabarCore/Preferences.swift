@@ -116,6 +116,10 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var notifyWhenTriggerFires = false
     /// M10: the one-time note about logging out has been shown.
     public var spacingNoticeShown = false
+    /// M13: tint and hairline for the menu bar; plain by default.
+    public var menuBarStyle = MenuBarStyle()
+    /// N11: listen for coding agents on a local socket. Off by default (PRD security note).
+    public var agentSocket = false
 
     public init() {}
 
@@ -131,6 +135,7 @@ public struct Preferences: Codable, Equatable, Sendable {
         case drawnNotch
         case notifyWhenTriggerFires
         case spacingNoticeShown
+        case menuBarStyle, agentSocket
     }
 
     public init(from decoder: Decoder) throws {
@@ -151,5 +156,7 @@ public struct Preferences: Codable, Equatable, Sendable {
         knownRouters = try c.decodeIfPresent([String].self, forKey: .knownRouters) ?? defaults.knownRouters
         notifyWhenTriggerFires = try c.decodeIfPresent(Bool.self, forKey: .notifyWhenTriggerFires) ?? defaults.notifyWhenTriggerFires
         spacingNoticeShown = try c.decodeIfPresent(Bool.self, forKey: .spacingNoticeShown) ?? defaults.spacingNoticeShown
+        menuBarStyle = try c.decodeIfPresent(MenuBarStyle.self, forKey: .menuBarStyle) ?? defaults.menuBarStyle
+        agentSocket = try c.decodeIfPresent(Bool.self, forKey: .agentSocket) ?? defaults.agentSocket
     }
 }
