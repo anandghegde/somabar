@@ -1,0 +1,27 @@
+included:
+  - Sources
+  - Tests
+  - App
+excluded:
+  - .build
+disabled_rules:
+  - trailing_comma
+  - opening_brace
+  - todo
+line_length:
+  warning: 160
+  error: 200
+  ignores_comments: true
+identifier_name:
+  min_length: 1
+  excluded: [id, x, y, ax, pid]
+type_body_length:
+  warning: 400
+file_length:
+  warning: 600
+function_body_length:
+  warning: 80
+nesting:
+  type_level: 2
+cyclomatic_complexity:
+  ignores_case_statements: true

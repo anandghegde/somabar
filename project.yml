@@ -1,0 +1,82 @@
+name: Somabar
+options:
+  bundleIdPrefix: app.somabar
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+packages:
+  SomabarKit:
+    path: .
+
+targets:
+  Somabar:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - "Support/**"
+    dependencies:
+      - package: SomabarKit
+        product: SomabarCore
+      - package: SomabarKit
+        product: BarEngine
+      - package: SomabarKit
+        product: NotchKit
+    info:
+      path: App/Support/Info.plist
+      properties:
+        CFBundleName: Somabar
+        CFBundleDisplayName: Somabar
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSApplicationCategoryType: public.app-category.utilities
+        # Agent app: no Dock icon, no main menu.
+        LSUIElement: true
+        NSPrincipalClass: NSApplication
+        NSHumanReadableCopyright: "Somabar contributors. GPL-3.0."
+        # Triggers only read whether another app is using the camera or the microphone, through
+        # device properties that need no permission. The strings are here so that, should macOS
+        # ever gate those reads, it asks instead of ending the process.
+        NSCameraUsageDescription: "Somabar only checks whether another app is using the camera, for your triggers. It never captures video."
+        NSMicrophoneUsageDescription: "Somabar only checks whether another app is using the microphone, for your triggers. It never records audio."
+        CFBundleURLTypes:
+          - CFBundleURLName: app.somabar.url
+            CFBundleURLSchemes: [somabar]
+    entitlements:
+      path: App/Support/Somabar.entitlements
+      properties: {}
+    settings:
+      base:
+        PRODUCT_NAME: Somabar
+        PRODUCT_BUNDLE_IDENTIFIER: app.somabar.Somabar
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        # No sandbox (the Accessibility API and CGEvent posting need the full process), but
+        # hardened runtime on. Ad-hoc signing: Accessibility trust resets on every rebuild.
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        COMBINE_HIDPI_IMAGES: YES
+
+schemes:
+  Somabar:
+    build:
+      targets:
+        Somabar: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
