@@ -53,12 +53,36 @@ Slice 2, "engine alpha". Somabar can:
   beside the camera and pulses "Time's up".
 - Show everything on a wide display: above `displayRules.showEverythingAbovePoints` (2560 pt
   by default, `null` turns it off), Hidden and Tucked items stay in the bar without changing
-  the layout file. The log's `Displays` category records the decision.
+  the layout file. The log's `Displays` category records the decision. With
+  `displayRules.leaveInactiveDisplaysUntouched` (on by default) the rule follows the display
+  you are working on, so a wide display nobody is using does not change the bar; off, it
+  looks at the widest display.
+- Show live activities in the notch, one at a time: a call (green dot and call length), a
+  timer in its last minute, what Music or Spotify is playing, then a running timer. Hover to
+  see up to two more, with previous, play/pause and next for the player. Plugging in the
+  charger pulses the charge level and time to full; a Focus change pulses too. Drag a file
+  anywhere and the notch widens into a drop target; drop it to open the share menu, AirDrop
+  included. While the screen is shared the notch shows a red dot and only calls and timers.
+  Each profile chooses which activities it shows (Settings › Profiles). The first time
+  Somabar reads Music or Spotify, macOS asks for Automation access.
+- Tighten the spacing between items (Settings › General): Default, Snug or Tight. Somabar
+  sets macOS's `NSStatusItemSpacing` and `NSStatusItemSelectionPadding` for your user on
+  this Mac. Apps opened from then on use the new spacing; log out and back in to apply it to
+  every item. Somabar explains this once, and puts spacing back to the system default when it
+  quits.
+- Show real item images in the palette and the tray (`realItemImages`, off by default), captured
+  with one-shot ScreenCaptureKit screenshots. Somabar asks for Screen Recording when you turn
+  it on; without it, or when a capture fails, it shows the app's icon as before.
+- Run a trigger when an item's icon changes ("Item icon changes" in the trigger editor). It
+  needs Screen Recording, which Somabar asks for once when such a trigger is saved. See
+  Triggers below.
+- Check for updates through Sparkle 2 ("Check for Updates…" in the glyph's menu, automatic
+  checks under Settings › General). The update check is the only network call Somabar makes.
+  Builds without a signing key, including every local build, have updates switched off.
 
-Not yet: updates, rules for more than one display beyond the width rule, and the `spacing`
-preference (saved, not applied). The notch guard and the notch surface have not been
-exercised on a notched Mac, and none of the new windows has been opened by hand yet; see
-`implementation_status.md`.
+Not yet: transfers, the volume HUD and agent activity in the notch (roadmap). Nothing built
+after the engine alpha has been exercised by hand yet, and the notch has not been seen on a
+notched Mac; see `implementation_status.md`.
 
 ## Requirements
 
@@ -66,6 +90,9 @@ exercised on a notched Mac, and none of the new windows has been opened by hand 
 - Xcode 26.4 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) to build the app.
 - Accessibility access, to identify and move items. Without it Somabar still hides and
   reveals, but adopts the bar as it is.
+- Optional: Screen Recording, only for real item images and icon-change triggers, and
+  Automation access to Music or Spotify, only for Now Playing in the notch. Somabar asks
+  for each the first time the feature that needs it is used, never before.
 
 ## Build
 
@@ -112,13 +139,16 @@ when something changes.
 | `rehideWhenAppChanges` | true | Hide when the front app changes. |
 | `stillMode` | false | Never auto-rehide; the notch fades instead of springing. |
 | `showDividers` | true | Draw the two dividers in the bar. |
+| `spacing` | `default` | `default`, `snug` (12 pt spacing, 8 pt padding) or `tight` (6 pt, 6 pt) between items. |
+| `spacingNoticeShown` | false | Somabar has explained once that a log-out applies spacing everywhere. |
 | `notchSurface` | true | Draw the notch surface at all. |
 | `drawnNotch` | false | On a display without a notch, draw a 180 × 32 pt one to hang the surface on. |
 | `notchGuard` | true | Move Shown items that would sit under the camera housing to Hidden. |
-| `realItemImages` | false | Reserved: real item images need Screen Recording; off means app icons and titles. |
+| `realItemImages` | false | Show captured item images in the palette and tray; needs Screen Recording. Off means app icons and titles. |
 | `notifyWhenTriggerFires` | false | Show a system notification when a trigger starts holding or switches profile. |
 | `displayRules.showEverythingAbovePoints` | 2560 | Keep every item in the bar on a display wider than this; `null` turns it off. |
 | `displayRules.trayOnlyOnBuiltInDisplay` | true | Open the tray on the built-in display when there is one. |
+| `displayRules.leaveInactiveDisplaysUntouched` | true | Evaluate display rules against the display whose menu bar is active; off means the widest display. |
 | `knownRouters` | [] | Hardware addresses of routers the `knownRouter` condition trusts. |
 
 ## Triggers
@@ -156,6 +186,10 @@ profile's layout.
 { "id": "…", "name": "Docker from a script", "isEnabled": true,
   "condition": {"external": {"name": "docker"}},
   "action": {"show": {"_0": {"bundleID": "com.docker.docker", "title": "Item-0", "ordinal": 0}}} }
+
+{ "id": "…", "name": "Slack when it has news", "isEnabled": true,
+  "condition": {"iconChanged": {"_0": {"bundleID": "com.tinyspeck.slackmacgap", "title": "Item-0", "ordinal": 0}}},
+  "action": {"show": {"_0": {"bundleID": "com.tinyspeck.slackmacgap", "title": "Item-0", "ordinal": 0}}} }
 ```
 
 Conditions: `powerSource` (`battery`, `adapter`), `batteryBelow` (`{"percent": 20}`),
@@ -163,8 +197,9 @@ Conditions: `powerSource` (`battery`, `adapter`), `batteryBelow` (`{"percent": 2
 (`builtInOnly`, `externalConnected`, `widerThan` with `{"points": 2000}`), `screenSharing`,
 `mediaInUse` (`microphone`, `camera`, `either`), `appRunning` and `appFrontmost`
 (`{"bundleID": "…"}`), `focus` (`{"name": "Work"}`), `timeOfDay` (minutes since midnight; a
-range that ends before it starts crosses midnight), `external` (`{"name": "docker"}`), and
-`not`, `allOf`, `anyOf` to combine them. Actions: `show`, `hide`, `switchProfile`.
+range that ends before it starts crosses midnight), `external` (`{"name": "docker"}`),
+`iconChanged` (an item, named like the action's), and `not`, `allOf`, `anyOf` to combine
+them. Actions: `show`, `hide`, `switchProfile`.
 
 How they behave:
 
@@ -184,6 +219,11 @@ How they behave:
   Filter › Somabar, then type the name your trigger uses.
 - `external` conditions are switched from outside: `open "somabar://set?docker=on"` and
   `open "somabar://set?docker=off"`; several at once with `&`. Names are case-insensitive.
+- *Item icon changes* holds for 10 s each time the item's image changes, and another change
+  during those seconds starts the 10 s again. Somabar looks at the watched items on its 3 s
+  status-window poll, only while an enabled trigger watches them and only with Screen
+  Recording, which it asks for once when such a trigger is saved. Declined, the condition
+  never holds and Settings shows a note with "Open System Settings".
 
 The glyph's menu shows which triggers hold under "Triggers". The log (below) has a
 `Triggers` category with every context change and effect.
@@ -198,6 +238,10 @@ The glyph's menu shows which triggers hold under "Triggers". The log (below) has
 | `App` | The menu bar app: glyph, menu, hot keys, gestures, reconciler, Items window, search palette, tray. |
 | `App/Settings` | The Settings window and the trigger editor. |
 | `App/Notch` | The notch surface window, its views and model. |
+| `App/Notch/Activities` | The live activities: calls, charging, drop to share, Now Playing, Focus, screen share. |
+| `App/ItemImages` | ScreenCaptureKit captures for real item images and the icon-change detector. |
+| `App/Spacing` | Writes the item spacing defaults and shows the one-time note. |
+| `App/Updates` | Sparkle 2 updates and the Updates section in Settings. |
 
 Your layout lives in `~/Library/Application Support/Somabar/layout.somabar`. Set
 `SOMABAR_DOCUMENT_DIR` to run a copy against another directory, for instance to try triggers
@@ -209,6 +253,24 @@ on a copy of the file.
 `somabar://items`, `somabar://search`, `somabar://tray`, `somabar://settings`,
 `somabar://rescan`, `somabar://profile?Focus`, `somabar://timer?25`, `somabar://timer?stop`,
 `somabar://set?docker=on`, `somabar://set?docker=off&meeting=on`.
+
+## Updates
+
+Somabar uses Sparkle 2 with EdDSA-signed appcasts. Local builds carry an empty
+`SUPublicEDKey`, so the updater never starts and "Check for Updates…" stays disabled with a
+note. To publish updates:
+
+1. Run Sparkle's `generate_keys` once (for instance
+   `.build/xcode/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys`). It keeps the
+   private key in your login keychain and prints the public key.
+2. Paste the public key into `SUPublicEDKey` under `info.properties` in `project.yml` and run
+   `make app`.
+3. For each release, put the signed and notarized archive in a folder and run
+   `generate_appcast <folder>`. It signs the archive with the key from the keychain and writes
+   `appcast.xml`, with delta updates when older versions are in the folder.
+4. Upload the archive and `appcast.xml` as assets of the GitHub Release. `SUFeedURL` points at
+   `https://github.com/anandghegde/somabar/releases/latest/download/appcast.xml`, which always
+   resolves to the latest release.
 
 ## Logs
 

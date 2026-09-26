@@ -22,10 +22,36 @@ public struct RevealGestures: Codable, Equatable, Sendable {
     }
 }
 
-public enum Spacing: String, Codable, Sendable {
+/// M10: the space between menu bar items. macOS reads two per-host global defaults,
+/// `NSStatusItemSpacing` and `NSStatusItemSelectionPadding`, when an app creates its items.
+public enum Spacing: String, Codable, Sendable, CaseIterable {
     case `default`
     case snug
     case tight
+
+    /// The `NSStatusItemSpacing` value in points; nil means the key is removed (system default, 16).
+    public var statusItemSpacing: Int? {
+        switch self {
+        case .default: nil
+        case .snug: 12
+        case .tight: 6
+        }
+    }
+
+    /// The `NSStatusItemSelectionPadding` value in points; nil means the key is removed (system default, 16).
+    public var selectionPadding: Int? {
+        switch self {
+        case .default: nil
+        case .snug: 8
+        case .tight: 6
+        }
+    }
+
+    /// Whether a pair of values read from the defaults is one Somabar writes, so resetting to
+    /// the system default never removes values the person set by hand.
+    public static func isSomabarValue(spacing: Int?, padding: Int?) -> Bool {
+        allCases.contains { $0 != .default && $0.statusItemSpacing == spacing && $0.selectionPadding == padding }
+    }
 }
 
 /// M12: display rules.
@@ -33,8 +59,8 @@ public struct DisplayRules: Codable, Equatable, Sendable {
     /// Show everything on a display wider than this; nil turns the rule off.
     public var showEverythingAbovePoints: Int? = 2560
     public var trayOnlyOnBuiltInDisplay = true
-    /// Somabar only manages the primary display's bar today, so every other display is already
-    /// left untouched; nothing reads this until multi-display support exists.
+    /// On: the rules look at the display whose menu bar is active and follow it as it changes, so
+    /// a wide display nobody is using does not change the bar. Off: they look at the widest one.
     public var leaveInactiveDisplaysUntouched = true
 
     public init() {}
@@ -88,6 +114,8 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var knownRouters: [String] = []
     /// Post a system notification when a trigger starts holding or switches profile.
     public var notifyWhenTriggerFires = false
+    /// M10: the one-time note about logging out has been shown.
+    public var spacingNoticeShown = false
 
     public init() {}
 
@@ -102,6 +130,7 @@ public struct Preferences: Codable, Equatable, Sendable {
         case showDividers, spacing, displayRules, notchGuard, notchSurface, realItemImages, knownRouters
         case drawnNotch
         case notifyWhenTriggerFires
+        case spacingNoticeShown
     }
 
     public init(from decoder: Decoder) throws {
@@ -121,5 +150,6 @@ public struct Preferences: Codable, Equatable, Sendable {
         realItemImages = try c.decodeIfPresent(Bool.self, forKey: .realItemImages) ?? defaults.realItemImages
         knownRouters = try c.decodeIfPresent([String].self, forKey: .knownRouters) ?? defaults.knownRouters
         notifyWhenTriggerFires = try c.decodeIfPresent(Bool.self, forKey: .notifyWhenTriggerFires) ?? defaults.notifyWhenTriggerFires
+        spacingNoticeShown = try c.decodeIfPresent(Bool.self, forKey: .spacingNoticeShown) ?? defaults.spacingNoticeShown
     }
 }

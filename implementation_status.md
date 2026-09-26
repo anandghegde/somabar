@@ -2,7 +2,9 @@
 
 Slice 2, "engine alpha on macOS 26", plus the trigger runtime, plus the Slice 3 surfaces (search
 palette, Hidden items tray, Settings with a trigger editor, trigger notifications, the notch
-surface and timer, the wide-display rule), which build and are unit-tested but have not been
+surface and timer, the wide-display rule), plus the Slice 4 fill-ins (Sparkle updates, item
+spacing, real item images, the icon-change trigger, the notch's live activities, the
+active-display rule). Everything after Slice 2 builds and is unit-tested but has not been
 opened by hand. Last updated 2026-09-26 on macOS 26.4.1, Xcode 26.4.1, Swift 6.3.1, a Mac mini
 M4 with one 4K display (1920 × 1080 points, no notch), on Ethernet, with a Screen Sharing
 session open to it.
@@ -84,10 +86,12 @@ driven the gestures.
     `A trigger asks for the profile … which the layout file does not have` error is unit-tested
     only.
 - **Logging.** Categories `Controller`, `DividerBackend`, `Hotkeys`, `ItemMover`, `Gestures`,
-  `Reconciler`, `Rehide`, `Menus`, `Items`, `Triggers`, `Displays`. Read with
+  `Reconciler`, `Rehide`, `Menus`, `Items`, `Triggers`, `Displays`, and since Slice 4
+  `Spacing`, `Updates`, `icons` and `activities`. Read with
   `/usr/bin/log show --last 5m --predicate 'subsystem == "app.somabar"' --info --style compact`.
   Only `.info` and above persist; `.debug` lines do not show up in `log show`.
-- 173 unit tests in 36 suites pass (`swift test`); `swiftlint` is clean; the app target builds.
+- 213 unit tests in 44 suites pass (`swift test`); `swiftlint` is clean; the app target builds
+  with one pre-existing Sendable warning in `TriggersSettingsView.swift`.
 
 ## Unverified or assumed
 
@@ -106,7 +110,9 @@ driven the gestures.
 - **Clicks on the collapsed divider itself.** macOS caps the divider at 5,016 pt and reports it
   off screen, so it never receives a click; the global monitor handles empty-bar clicks instead.
   The divider's click path stays wired for a macOS that behaves differently.
-- **Multiple displays.** Everything assumes the primary display.
+- **Multiple displays.** The bar Somabar moves items on is the primary display's; the display
+  rules now read the active display (below), the tray and the notch surface prefer the
+  built-in display. None of it has been tried with a second display attached.
 - **Rehide when the app changes** was verified in Slice 1 only.
 - **Corrupt layout file** is moved aside as `layout.broken-<timestamp>.somabar`; not exercised.
 - **Trigger conditions this machine cannot produce.** A Mac mini has no battery, so `powerSource`
@@ -147,8 +153,61 @@ driven the gestures.
   focus in a menu-bar-only app, ⌘-combos reaching it, and hot keys being switched off during
   recording and back on afterwards; whether the live changes (gestures, dividers, the notch
   guard rescan, trigger re-evaluation) take effect without a relaunch; and ⌘, from the glyph's
-  menu. Spacing is saved but not yet applied to the bar. Edits are saved 0.8 s after the last
-  change, and whatever is still waiting is saved when the window closes.
+  menu. Edits are saved 0.8 s after the last change, and whatever is still waiting is saved
+  when the window closes.
+- **Spacing (M10).** Snug writes `NSStatusItemSpacing` 12 and `NSStatusItemSelectionPadding`
+  8, Tight 6 and 6, into the current-host global domain through `CFPreferences`; Default
+  removes the keys, but only when they hold one of Somabar's pairs, so values a person set by
+  hand stay. Applied at launch and on each change, removed on a normal quit (M19; after a
+  crash they stay until the next launch reconciles them). The first non-default pick shows one
+  alert ("Spacing applies to apps opened from now on", one OK button; a Log Out button was
+  dropped because sending the log-out Apple event needs the Automation entitlement and a
+  prompt), remembered in `spacingNoticeShown`. Not seen: that newly launched apps pick the
+  values up, that a log-out applies them everywhere, and that the alert shows once.
+- **Updates.** Sparkle 2.10 is linked into the app target only. The updater starts only when
+  `SUFeedURL` and `SUPublicEDKey` are both non-empty in Info.plist; the key is empty in this
+  tree, so "Check for Updates…" is disabled with a tooltip and Settings › General › Updates
+  shows the toggle disabled with a note, and nothing touches the network. `codesign --verify
+  --deep --strict` passes on the built app with the embedded framework. Not seen: Sparkle
+  loading under ad-hoc signing and the hardened runtime, the first-launch question, and an
+  update end to end with a real key and appcast.
+- **Real item images.** With `realItemImages` on and Screen Recording granted, each status
+  window is captured once with `SCScreenshotManager` (no streams), cached by window ID and
+  refreshed after a scan whose set of windows changed or whose last capture is over 60 s old.
+  Blank captures fall back to the app icon. Turning the toggle on calls
+  `CGRequestScreenCaptureAccess` once; Settings re-checks the permission when the window
+  appears or the app becomes active. Not seen: whether hidden items' off-screen windows
+  capture, the prompt, "Open System Settings", how long the purple indicator shows, and
+  whether `CGPreflightScreenCaptureAccess` reports a fresh grant before a relaunch. The
+  palette and tray only pick up new captures the next time they open.
+- **Icon-change trigger.** "Item icon changes" is an editor condition; saving an enabled
+  trigger that uses it asks for Screen Recording once, ever (a UserDefaults flag). The
+  detector runs on the existing 3 s status-window pass, captures only the watched items,
+  compares a 16 × 16 coverage-and-colour hash (40/255 per pixel, more than 5 of 256 pixels)
+  and reports changes into `ContextSnapshot.changedIcons`, which holds for 10 s. It is
+  skipped while a menu hangs from the bar or a reconcile runs. Not seen: hash sensitivity
+  on real icons (menu highlight, clock-like items, wallpaper tint) and whether a click on a
+  watched item trips it through its highlight.
+- **Live activities.** `ActivityBoard` (NotchKit, unit-tested) ranks Call > Timer in its last
+  60 s > Transfer > Now Playing > Timer, filters by the profile's `enabledActivities`, and
+  leaves only Call and Timer while the screen is shared. Built: Call (green dot, mic or
+  camera glyph, elapsed time; the app name for Zoom, Teams, FaceTime, Webex, Slack, Discord,
+  else "Browser call"; no mute or hang-up), Charging (a pulse with percent and time to full
+  from IOKit, waiting up to 4 s for the estimate), Drop to share (a global drag monitor
+  during file drags, a clear panel over the widened notch, `NSSharingServicePicker` on drop),
+  Now Playing (Music and Spotify distributed notifications; AppleScript for Music's position
+  and artwork and for previous/play-pause/next, so Automation is asked once and the app
+  gained the apple-events entitlement and usage string; no scrubber or output picker), a
+  Focus pulse and the screen-share red dot with "Back to <profile>". Expanded grew to 300 pt
+  to fit two rows. This Mac has no battery, camera, player session or notch, so none of it
+  has been watched: the drag monitor during a Finder drag, the drop landing on the panel, the
+  share menu from a non-activating panel, Music's `playerInfo` fields, the Automation prompt
+  and the layout itself are all assumed.
+- **Active-display rule.** With `leaveInactiveDisplaysUntouched` (default) the width rule
+  reads the display whose menu bar is active (`NSScreen.main` when displays have separate
+  Spaces, else the primary display), re-read on app activation, Space change and display
+  change; off, the widest display as before; an unknown width falls back to the widest.
+  Unit-tested, not tried with two displays.
 - **Trigger notifications.** `.somabarTriggerFired` is posted when a trigger starts holding or
   switches profile; when the person asks for it, a system notification follows, but not at
   launch. The permission prompt and delivery have not been seen on an ad-hoc signed build, nor
@@ -168,8 +227,7 @@ driven the gestures.
 - **Show everything above N points** is applied in `effectiveLayout` (display rule first, then
   triggers, so a trigger's hide still wins) and unit-tested, but this display is 1920 pt wide,
   so it has never held. Dragging an item into Hidden by hand while it holds is learned into the
-  file, but the rule then brings the item back into Shown. `leaveInactiveDisplaysUntouched`
-  does nothing because Somabar only manages the primary display.
+  file, but the rule then brings the item back into Shown.
 
 ## Deviations from the PRD
 
@@ -216,14 +274,25 @@ driven the gestures.
 
 ## Not built yet
 
-Updates (Sparkle needs a feed URL and a signing key), display rules beyond the width rule
-(`leaveInactiveDisplaysUntouched` is a comment; Somabar manages the primary display only),
-`spacing` (saved by Settings, not applied), real item images (`realItemImages` is saved but the
-palette and tray always draw app icons), and the `iconChanged` condition in the trigger editor
-(the file still accepts it). The timer is the notch's only activity so far; the per-profile
-activity toggles Settings shows are saved but nothing else feeds the compact state.
+Transfers, the volume HUD and agent activity in the notch (their ranks exist in
+`ActivityRank`, nothing produces them); mute and hang-up for calls, and the scrubber and
+output device picker for Now Playing (no public API); a "Log Out" button in the spacing
+notice; a real Sparkle key and appcast (the tree ships with an empty `SUPublicEDKey`, so
+updates are off).
 
 ## Built since the last verified run (2026-09-26)
+
+- Slice 4: `App/Updates/` (Sparkle 2, the Updates settings section), `App/Spacing/` (the
+  spacing defaults and the notice; `Spacing` in SomabarCore knows its values),
+  `App/ItemImages/` (Screen Recording permission, one-shot window capture, the image
+  provider, the icon-change detector; `Sources/SomabarCore/IconChange.swift` holds the
+  watched-items rule and the hash), `App/Notch/Activities/` (`ActivityCenter`, the
+  charging, Now Playing and drop-to-share watchers, the activity views;
+  `Sources/NotchKit/ActivityBoard.swift`, `ActivityText.swift` and `NowPlayingTrack.swift`
+  are the pure parts), `App/Context/ActiveDisplay.swift` with
+  `ContextSnapshot.activeDisplayPoints`. Preferences gained `spacingNoticeShown`; `project.yml`
+  gained the Sparkle package, `SUFeedURL`, an empty `SUPublicEDKey`, the apple-events
+  entitlement and `NSAppleEventsUsageDescription`.
 
 - Search palette: `App/SearchPalette.swift`, ranking in `Sources/SomabarCore/ItemSearch.swift`.
 - Hidden items tray: `App/TrayWindow.swift`; `ItemMover.click(_:at:)` is the fallback opener.

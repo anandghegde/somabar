@@ -78,6 +78,14 @@ final class SettingsModel {
         }
     }
 
+    /// Turning real item images on asks for Screen Recording. A refusal keeps the setting; the
+    /// view says app icons are shown instead.
+    func setRealItemImages(_ isOn: Bool) {
+        preferences.realItemImages = isOn
+        guard isOn else { return }
+        ScreenRecordingPermission.shared.request()
+    }
+
     // MARK: Hot keys
 
     /// Nil when saved; the clash otherwise, and nothing changes.
@@ -123,6 +131,8 @@ final class SettingsModel {
     func updateProfile(_ profile: Profile) {
         guard let controller, controller.document.profiles.contains(where: { $0.id == profile.id }) else { return }
         controller.document.update(profile)
+        // The profile's notch settings may name different activities.
+        controller.activities.settingsChanged()
         changed("Settings: \(profile.name)")
     }
 
@@ -147,6 +157,10 @@ final class SettingsModel {
         }
         controller.triggersDidChange()
         changed("Settings: trigger \(trigger.displayName)")
+        // An icon-change trigger needs Screen Recording; Somabar asks once, ever.
+        if trigger.isEnabled, trigger.condition.requiresScreenRecording {
+            ScreenRecordingPermission.shared.requestOnceForTriggers()
+        }
     }
 
     func removeTrigger(id: UUID) {

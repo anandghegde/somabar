@@ -9,11 +9,18 @@ struct AdvancedSettingsView: View {
         Form {
             routersSection
             SwiftUI.Section("Items") {
-                Toggle("Show real item images", isOn: $model.preferences.realItemImages)
+                Toggle("Show real item images", isOn: Binding(
+                    get: { model.preferences.realItemImages },
+                    set: { model.setRealItemImages($0) }
+                ))
                 Text("Needs Screen Recording access. Off shows each app's icon and name.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if model.preferences.realItemImages && !ScreenRecordingPermission.shared.isGranted {
+                    ScreenRecordingNote(text: "Screen Recording is off. Somabar shows app icons instead.")
+                }
             }
+            .onAppear { ScreenRecordingPermission.shared.refresh() }
             SwiftUI.Section("Notch") {
                 Toggle("Move items out from under the notch", isOn: $model.preferences.notchGuard)
                 Toggle("Notch surface", isOn: $model.preferences.notchSurface)

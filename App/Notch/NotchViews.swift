@@ -46,14 +46,14 @@ struct NotchShapeView: View {
         case .idle:
             EmptyView()
         case .compact:
-            CameraSplitView(model: model) {
-                Image(systemName: model.timerPaused ? "pause.circle" : "timer")
-                    .foregroundStyle(model.timerPaused ? .orange : .white)
-            } right: {
-                Text(model.timerText ?? "")
-                    .monospacedDigit()
+            if let compact = model.compact {
+                // Keyed by kind, so a new winner cross-fades in.
+                CompactActivityView(model: model, compact: compact)
+                    .id(compact.kind)
+                    .transition(.opacity)
+            } else {
+                legacyTimer
             }
-            .transition(.opacity)
         case .pulse:
             PulseView(model: model)
                 .transition(.opacity)
@@ -61,6 +61,18 @@ struct NotchShapeView: View {
             ExpandedView(model: model)
                 .transition(.opacity)
         }
+    }
+
+    /// The timer on its own, before `ActivityCenter` has run.
+    private var legacyTimer: some View {
+        CameraSplitView(model: model) {
+            Image(systemName: model.timerPaused ? "pause.circle" : "timer")
+                .foregroundStyle(model.timerPaused ? ActivityTint.secondary.color : .white)
+        } right: {
+            Text(model.timerText ?? "")
+                .monospacedDigit()
+        }
+        .transition(.opacity)
     }
 }
 
@@ -94,7 +106,7 @@ struct PulseView: View {
     var body: some View {
         if model.cameraRect.width > 0 {
             CameraSplitView(model: model) {
-                Image(systemName: "bell.fill")
+                Image(systemName: model.pulseSymbol)
             } right: {
                 Text(model.pulseText)
                     .minimumScaleFactor(0.7)
@@ -102,7 +114,7 @@ struct PulseView: View {
             }
         } else {
             HStack(spacing: 6) {
-                Image(systemName: "bell.fill")
+                Image(systemName: model.pulseSymbol)
                 Text(model.pulseText)
                     .minimumScaleFactor(0.7)
             }
@@ -122,6 +134,9 @@ struct ExpandedView: View {
         VStack(alignment: .leading, spacing: 10) {
             profileRow
             timerRow
+            ForEach(model.activities.prefix(NotchSurface.maxActivityRows)) { row in
+                ActivityRowView(row: row)
+            }
             hiddenRow
         }
         .font(.system(size: 12, weight: .medium))
@@ -156,7 +171,7 @@ struct ExpandedView: View {
                 Text(text)
                     .monospacedDigit()
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(model.timerPaused ? .orange : .white)
+                    .foregroundStyle(model.timerPaused ? ActivityTint.secondary.color : .white)
                     .frame(minWidth: 44, alignment: .leading)
                 pill(model.timerPaused ? "Resume" : "Pause", action: model.actions.togglePause)
                 pill("Cancel", action: model.actions.cancelTimer)

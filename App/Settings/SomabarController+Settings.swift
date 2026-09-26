@@ -33,6 +33,12 @@ extension SomabarController {
         if new.notchGuard != old.notchGuard {
             scheduleScan(after: 0.3, reason: "notch guard \(new.notchGuard ? "on" : "off")")
         }
+        if new.realItemImages != old.realItemImages {
+            refreshItemImages(force: true)
+        }
+        if new.spacing != old.spacing {
+            spacingDidChange()
+        }
     }
 
     /// A profile was renamed, added or removed. Triggers may name it; the active one may be new.
@@ -43,6 +49,7 @@ extension SomabarController {
             scanNow(reason: "profile \(document.activeProfile)")
         }
         evaluateTriggers(reason: "profiles edited")
+        activities.settingsChanged()
     }
 
     /// Items a trigger can show or hide: what the bar has now plus what any profile remembers.

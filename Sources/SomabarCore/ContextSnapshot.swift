@@ -13,6 +13,8 @@ public struct ContextSnapshot: Equatable, Sendable {
     public var displayCount = 1
     public var hasExternalDisplay = false
     public var widestDisplayPoints = 0
+    /// The width of the display whose menu bar is active; 0 when unknown.
+    public var activeDisplayPoints = 0
 
     public var isScreenShared = false
     public var microphoneInUse = false

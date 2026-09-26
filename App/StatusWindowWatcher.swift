@@ -11,6 +11,9 @@ final class StatusWindowWatcher {
     static let pollSeconds: Double = 3
 
     var onChange: (@MainActor () -> Void)?
+    /// Called on every pass, changed or not: the icon-change detector rides this poll rather
+    /// than adding its own.
+    var onPass: (@MainActor () -> Void)?
     private var task: Task<Void, Never>?
     private var known: Set<CGWindowID>?
     private let log = Logger(subsystem: "app.somabar", category: "Items")
@@ -23,6 +26,7 @@ final class StatusWindowWatcher {
                 try? await Task.sleep(for: .seconds(Self.pollSeconds))
                 guard !Task.isCancelled else { return }
                 self.look()
+                self.onPass?()
             }
         }
     }

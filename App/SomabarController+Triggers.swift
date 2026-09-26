@@ -15,7 +15,7 @@ extension SomabarController {
         // Display rules first (M12, `App/Notch/SomabarController+Notch.swift`), so a trigger's hide
         // still wins on a wide display.
         document.preferences.displayRules
-            .apply(to: document.active.layout, screenWidthPoints: Self.primaryDisplayWidthPoints)
+            .apply(to: document.active.layout, screenWidthPoints: displayRuleWidthPoints)
             .applying(triggers.applied)
     }
 
@@ -23,6 +23,8 @@ extension SomabarController {
         context.onChange = { [weak self] reason in self?.evaluateTriggers(reason: reason) }
         context.wantsClock = document.triggersDependOnTime
         context.start()
+        // The icon-change condition's detector and real item images (`App/ItemImages/`).
+        startItemImages()
         evaluateTriggers(reason: "launch")
     }
 

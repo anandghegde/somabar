@@ -5,6 +5,8 @@ import SwiftUI
 struct ConditionLeafEditor: View {
     @Binding var leaf: LeafConditionDraft
     var canRemove: Bool
+    /// For the icon-change condition's item picker, the same list the action's picker offers.
+    var items: [ItemChoice] = []
     var onRemove: () -> Void
 
     var body: some View {
@@ -69,6 +71,31 @@ struct ConditionLeafEditor: View {
             Text("Switched with open \"somabar://set?\(leaf.name.isEmpty ? "name" : leaf.name)=on\" and =off.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        case .iconChanged:
+            iconChangedFields
+        }
+    }
+
+    /// The item to watch, and why the condition may never fire without Screen Recording.
+    @ViewBuilder private var iconChangedFields: some View {
+        Picker("Item", selection: $leaf.item) {
+            Text("Choose an item").tag(ItemKey?.none)
+            if let item = leaf.item, !items.contains(where: { $0.key == item }) {
+                Text(ItemChoice(key: item, appName: nil).label).tag(ItemKey?.some(item))
+            }
+            ForEach(items) { choice in
+                Text(choice.label).tag(ItemKey?.some(choice.key))
+            }
+        }
+        let permission = ScreenRecordingPermission.shared
+        if permission.isGranted {
+            Text("Holds for \(Int(IconChange.holdSeconds)) seconds each time the item's image changes. Somabar looks every 3 seconds.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if permission.askedForTriggers {
+            ScreenRecordingNote(text: "Needs Screen Recording. Somabar asked once; grant it in System Settings.")
+        } else {
+            ScreenRecordingNote(text: "Needs Screen Recording. Somabar asks for it when you save.")
         }
     }
 

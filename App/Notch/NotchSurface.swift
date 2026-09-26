@@ -18,6 +18,9 @@ final class NotchSurface: NSObject {
     /// Beside a real camera: room for the timer on each side.
     static let compactExtension: CGFloat = 56
     static let expandedSize = CGSize(width: 460, height: 180)
+    /// Expanded grows by one row per live activity, up to this many (`ActivityCenter`).
+    static let maxActivityRows = 2
+    static let activityRowHeight: CGFloat = 54
     static let animationSeconds = 0.35
     /// A little slack so a pointer on the panel's edge does not count as leaving.
     static let leaveSlack: CGFloat = 4
@@ -39,6 +42,13 @@ final class NotchSurface: NSObject {
     private var monitors: [Any] = []
     private var pointerInsideExpanded = false
     private let log = Logger(subsystem: "app.somabar", category: "Notch")
+    /// Set by `ActivityCenter`: the timer is one activity among others, so its changes go there
+    /// and the center tells the machine when Compact starts and ends.
+    var onTimerChanged: (@MainActor () -> Void)?
+    /// Something is drawn in Compact (`showActivities`).
+    private var hasCompactActivity = false
+    /// Compact is widened into the drop target (N5).
+    private var widensCompact = false
 
     /// The surface for this screen, or nil when there is none to draw: the preference is off,
     /// or the display has no notch and the drawn one is off.
@@ -53,7 +63,7 @@ final class NotchSurface: NSObject {
     init?(screen: NSScreen, geometry: NotchGeometry, controller: SomabarController) {
         guard let notch = geometry.notch,
               let widest = geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide),
-              let expanded = geometry.expandedFrame(size: Self.expandedSize)
+              let expanded = geometry.expandedFrame(size: Self.expandedSize(rows: Self.maxActivityRows))
         else { return nil }
         self.geometry = geometry
         self.controller = controller
@@ -114,8 +124,9 @@ final class NotchSurface: NSObject {
     // MARK: - Events
 
     /// A one-off event: the notch shows `text` for 2 s.
-    func pulse(text: String) {
+    func pulse(text: String, symbol: String = "bell.fill") {
         model.pulseText = text
+        model.pulseSymbol = symbol
         log.info("Pulse: \(text, privacy: .public)")
         send(.oneOffEvent)
     }
@@ -158,6 +169,8 @@ final class NotchSurface: NSObject {
     private static weak var shared: NotchSurface?
 
     private func pointerMoved() {
+        // A file dragged over the notch is dropped on it, not hovered open.
+        guard !widensCompact else { return }
         let appKitPoint = NSEvent.mouseLocation
         let point = CGPoint(x: appKitPoint.x - screenFrame.minX, y: screenFrame.maxY - appKitPoint.y)
         if machine.state == .expanded {
@@ -199,9 +212,10 @@ final class NotchSurface: NSObject {
         switch state {
         case .idle: nil
         // A drawn notch has room inside it; a real one needs the sides.
+        case .compact where widensCompact: geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide)
         case .compact: geometry.compactFrame(extensionPerSide: geometry.isDrawn ? 0 : Self.compactExtension)
         case .pulse: geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide)
-        case .expanded: geometry.expandedFrame(size: Self.expandedSize)
+        case .expanded: geometry.expandedFrame(size: Self.expandedSize(rows: model.activities.count))
         }
     }
 
@@ -271,6 +285,12 @@ final class NotchSurface: NSObject {
         }
     }
 
+    /// Expanded with room for `rows` activity rows.
+    private static func expandedSize(rows: Int) -> CGSize {
+        let rows = min(max(rows, 0), maxActivityRows)
+        return CGSize(width: expandedSize.width, height: expandedSize.height + CGFloat(rows) * activityRowHeight)
+    }
+
     private func local(_ rect: CGRect) -> CGRect {
         rect.offsetBy(dx: -canvas.minX, dy: -canvas.minY)
     }
@@ -338,13 +358,17 @@ final class NotchSurface: NSObject {
     func adopt(_ other: NotchTimer) {
         guard other.isActive else { return }
         timer = other
-        send(.activityStarted)
+        if onTimerChanged == nil {
+            send(.activityStarted)
+        }
         updateTimerText()
         if timer.isRunning { startTicking() }
     }
 
     private func apply(_ events: [NotchEvent]) {
         updateTimerText()
+        // With the activity center wired, it decides what Compact shows.
+        guard onTimerChanged == nil else { return }
         for event in events {
             send(event)
         }
@@ -353,6 +377,7 @@ final class NotchSurface: NSObject {
     private func updateTimerText() {
         model.timerText = timer.isActive ? timer.display(at: Self.clock) : nil
         model.timerPaused = timer.isPaused
+        onTimerChanged?()
     }
 
     /// Wakes when the m:ss display changes, and once more at zero.
@@ -376,4 +401,47 @@ final class NotchSurface: NSObject {
         log.notice("Timer finished")
         pulse(text: "Time's up")
     }
+}
+
+// MARK: - Activities
+
+extension NotchSurface {
+    /// What `ActivityCenter` picked: the Compact winner and the rows for Expanded. Tells the
+    /// machine when Compact starts or ends; a change of winner cross-fades.
+    func showActivities(compact: CompactPresentation?, rows: [ActivityRow], widened: Bool) {
+        let winnerChanged = model.compact?.kind != compact?.kind
+        let rowsChanged = model.activities.map(\.id) != rows.map(\.id)
+        if winnerChanged || rowsChanged {
+            let animation: Animation = stillMode ? .easeInOut(duration: 0.2) : .spring(response: Self.animationSeconds, dampingFraction: 0.82)
+            withAnimation(animation) {
+                model.compact = compact
+                model.activities = rows
+            }
+        } else {
+            // A tick: the text changes in place.
+            withTransaction(Transaction(animation: nil)) {
+                model.compact = compact
+                model.activities = rows
+            }
+        }
+        let hadCompact = hasCompactActivity
+        let wasWidened = widensCompact
+        hasCompactActivity = compact != nil
+        widensCompact = widened
+        if hasCompactActivity != hadCompact {
+            send(hasCompactActivity ? .activityStarted : .activityEnded)
+        } else if (wasWidened != widened && machine.state == .compact) || (rowsChanged && machine.state == .expanded) {
+            present()
+        }
+    }
+
+    /// The widened Compact shape in AppKit coordinates, with some room below it so a drop just
+    /// under the menu bar still lands: where `DropToShareWatcher` puts its target.
+    var dropTargetFrame: CGRect? {
+        guard let shape = geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide) else { return nil }
+        let target = CGRect(x: shape.minX, y: shape.minY, width: shape.width, height: shape.height + Self.dropTargetSlack)
+        return CGRect(x: screenFrame.minX + target.minX, y: screenFrame.maxY - target.maxY, width: target.width, height: target.height)
+    }
+
+    static let dropTargetSlack: CGFloat = 24
 }

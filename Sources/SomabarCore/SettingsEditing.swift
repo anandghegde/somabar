@@ -133,7 +133,7 @@ public enum ConditionMatch: String, CaseIterable, Sendable {
     case none
 }
 
-/// The leaf conditions a person can pick. `iconChanged` is left out: it is a 1.1 condition.
+/// The leaf conditions a person can pick. `iconChanged` is the one that needs Screen Recording.
 public enum ConditionKind: String, CaseIterable, Identifiable, Sendable {
     case powerSource
     case batteryBelow
@@ -146,6 +146,7 @@ public enum ConditionKind: String, CaseIterable, Identifiable, Sendable {
     case focus
     case timeOfDay
     case external
+    case iconChanged
 
     public var id: String { rawValue }
 
@@ -162,6 +163,7 @@ public enum ConditionKind: String, CaseIterable, Identifiable, Sendable {
         case .focus: "Focus is"
         case .timeOfDay: "Time of day"
         case .external: "Set by a script"
+        case .iconChanged: "Item icon changes"
         }
     }
 }
@@ -189,6 +191,8 @@ public struct LeafConditionDraft: Equatable, Identifiable, Sendable {
     public var name = ""
     public var fromMinute = 19 * 60
     public var toMinute = 7 * 60
+    /// The item whose icon is watched; nil until one is picked.
+    public var item: ItemKey?
 
     public static let powerSources: [PowerSource] = [.battery, .adapter]
     public static let networks: [NetworkCondition] = [.ethernet, .wifi, .vpn, .knownRouter, .unknownNetwork, .offline]
@@ -218,7 +222,8 @@ public struct LeafConditionDraft: Equatable, Identifiable, Sendable {
         case .focus(let focus): self.init(kind: .focus); name = focus
         case .timeOfDay(let range): self.init(kind: .timeOfDay); fromMinute = range.fromMinute; toMinute = range.toMinute
         case .external(let external): self.init(kind: .external); name = external
-        case .iconChanged, .not, .allOf, .anyOf: return nil
+        case .iconChanged(let key): self.init(kind: .iconChanged); item = key
+        case .not, .allOf, .anyOf: return nil
         }
     }
 
@@ -240,6 +245,8 @@ public struct LeafConditionDraft: Equatable, Identifiable, Sendable {
         case .focus: .focus(name: name.trimmingCharacters(in: .whitespaces))
         case .timeOfDay: .timeOfDay(TimeRange(fromMinute: fromMinute, toMinute: toMinute))
         case .external: .external(name: name.trimmingCharacters(in: .whitespaces))
+        // `isComplete` is false without an item, so the empty key is never saved.
+        case .iconChanged: .iconChanged(item ?? ItemKey(bundleID: ""))
         }
     }
 
@@ -248,6 +255,7 @@ public struct LeafConditionDraft: Equatable, Identifiable, Sendable {
         switch kind {
         case .appRunning, .appFrontmost: !bundleID.trimmingCharacters(in: .whitespaces).isEmpty
         case .focus, .external: !name.trimmingCharacters(in: .whitespaces).isEmpty
+        case .iconChanged: item != nil
         default: true
         }
     }
@@ -263,7 +271,7 @@ public struct ConditionDraft: Equatable, Sendable {
         self.leaves = leaves
     }
 
-    /// Nil when the condition is deeper than the editor goes (or uses `iconChanged`).
+    /// Nil when the condition is deeper than the editor goes.
     public init?(_ condition: Condition) {
         switch condition {
         case .allOf(let inner), .anyOf(let inner):

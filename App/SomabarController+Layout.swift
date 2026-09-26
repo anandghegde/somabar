@@ -212,6 +212,7 @@ extension SomabarController {
         lastObserved = nil
         saveDocument(reason: "Switched to \(profile.name)")
         log.notice("Switched to profile \(profile.name, privacy: .public)")
+        activities.settingsChanged()
         abandonReconcile(reason: "profile \(profile.name)")
         scanNow(reason: "profile \(profile.name)")
     }

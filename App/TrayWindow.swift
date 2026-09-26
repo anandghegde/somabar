@@ -4,7 +4,8 @@ import Observation
 import SomabarCore
 import SwiftUI
 
-/// One tile in the tray: the app's icon with the item's title under it.
+/// One tile in the tray: the app's icon (or the item's own image, with "Show real item images")
+/// with the item's title under it.
 struct TrayTile: Identifiable {
     var key: ItemKey
     var title: String
@@ -78,6 +79,8 @@ struct TrayTileView: View {
             VStack(spacing: 4) {
                 Image(nsImage: tile.icon)
                     .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
                     .frame(width: 40, height: 40)
                 Text(tile.title)
                     .font(.caption)
@@ -185,7 +188,7 @@ extension SomabarController {
                 }
                 return TrayTile(
                     key: key, title: title, appName: appName,
-                    icon: ItemIcons.icon(bundleID: key.bundleID, pid: item?.pid), windowID: item?.windowID
+                    icon: itemImage(windowID: item?.windowID, bundleID: key.bundleID, pid: item?.pid), windowID: item?.windowID
                 )
             })
         }

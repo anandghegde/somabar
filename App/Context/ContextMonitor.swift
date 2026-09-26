@@ -26,6 +26,8 @@ final class ContextMonitor: NSObject {
     /// Called on every screen parameters change, whether or not the snapshot changed, for the
     /// display rules and the notch surface.
     var onDisplaysChanged: (@MainActor () -> Void)?
+    /// Called after `onChange`, for the notch activities and the active-display rule.
+    var onSnapshotChange: (@MainActor (String) -> Void)?
     /// True when a trigger depends on the time of day, so the snapshot is refreshed every minute.
     var wantsClock = false {
         didSet { if wantsClock != oldValue { updateClock() } }
@@ -38,6 +40,9 @@ final class ContextMonitor: NSObject {
     private var pollTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
     private var routerTask: Task<Void, Never>?
+    /// Items whose icon changed within `IconChange.holdSeconds`, and the timer that ends it.
+    private var iconHold = IconChangeHold()
+    private var iconHoldTask: Task<Void, Never>?
     private var isStarted = false
 
     /// From the path monitor; the rest of the network state is read on each refresh.
@@ -80,6 +85,7 @@ final class ContextMonitor: NSObject {
         pollTask?.cancel()
         clockTask?.cancel()
         routerTask?.cancel()
+        iconHoldTask?.cancel()
     }
 
     /// Reads every source again and reports a change.
@@ -111,6 +117,36 @@ final class ContextMonitor: NSObject {
         commit(next, reason: "set " + updates.map { "\($0.name)=\($0.isOn ? "on" : "off")" }.joined(separator: " "))
     }
 
+    /// The icon-change detector saw these items' icons change. They hold for
+    /// `IconChange.holdSeconds`, together with any item that changed shortly before; another
+    /// change restarts the hold, and its end is committed as "iconChangeEnded".
+    func setChangedIcons(_ keys: Set<ItemKey>) {
+        guard !keys.isEmpty else { return }
+        let grew = iconHold.noteChange(keys, at: Date())
+        armIconHold()
+        // The same items again only restart the hold: the snapshot is unchanged, so there is
+        // nothing new to evaluate.
+        guard grew else { return }
+        var next = snapshot
+        next.changedIcons = iconHold.keys
+        commit(next, reason: "iconChanged")
+    }
+
+    /// One-shot: ends the hold at `iconHold.until` through the normal commit, so a trigger's
+    /// effect ends the way any condition's does.
+    private func armIconHold() {
+        iconHoldTask?.cancel()
+        guard let until = iconHold.until else { return }
+        iconHoldTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, until.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self, self.iconHold.expire(at: Date()) else { return }
+            self.iconHoldTask = nil
+            var next = self.snapshot
+            next.changedIcons = []
+            self.commit(next, reason: "iconChangeEnded")
+        }
+    }
+
     /// The Focus changed; nil when none is on (`SomabarFocusFilter`).
     func setFocus(_ name: String?) {
         var next = snapshot
@@ -137,6 +173,7 @@ final class ContextMonitor: NSObject {
             ScreenGeometry.displayID(of: screen).map { CGDisplayIsBuiltin($0) == 0 } ?? true
         }
         next.widestDisplayPoints = Int(screens.map(\.frame.width).max() ?? 0)
+        next.activeDisplayPoints = ActiveDisplay.widthPoints
 
         next.microphoneInUse = media.microphoneInUse
         next.cameraInUse = media.cameraInUse
@@ -155,6 +192,7 @@ final class ContextMonitor: NSObject {
         snapshot = next
         log.info("Context changed (\(reason, privacy: .public)): \(next.description, privacy: .public)")
         onChange?(reason)
+        onSnapshotChange?(reason)
     }
 
     // MARK: - Power
@@ -242,7 +280,7 @@ final class ContextMonitor: NSObject {
             self, selector: #selector(focusChanged(_:)), name: SomabarFocusFilter.didChangeNotification, object: nil)
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didLaunchApplicationNotification,
-                     NSWorkspace.didTerminateApplicationNotification] {
+                     NSWorkspace.didTerminateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             workspace.addObserver(self, selector: #selector(somethingChanged(_:)), name: name, object: nil)
         }
     }

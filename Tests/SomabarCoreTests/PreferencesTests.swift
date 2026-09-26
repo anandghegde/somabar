@@ -113,6 +113,7 @@ import Testing
             .display(.widerThan(points: 3000)), .display(.builtInOnly), .screenSharing, .mediaInUse(.camera),
             .appRunning(bundleID: "com.docker.docker"), .appFrontmost(bundleID: "us.zoom.xos"), .focus(name: "Work"),
             .timeOfDay(TimeRange(fromMinute: 1140, toMinute: 420)), .external(name: "docker"),
+            .iconChanged(ItemKey(bundleID: "com.tinyspeck.slackmacgap", title: "Slack", ordinal: 1)),
         ]
         for leaf in leaves {
             #expect(roundTrip(leaf) == leaf)
@@ -131,7 +132,19 @@ import Testing
     @Test func deeperConditionsAreNotEditable() {
         #expect(ConditionDraft(.allOf([.not(.screenSharing), .network(.wifi)])) == nil)
         #expect(ConditionDraft(.not(.allOf([.screenSharing, .network(.wifi)]))) == nil)
-        #expect(ConditionDraft(.iconChanged(ItemKey(bundleID: "x"))) == nil)
+    }
+
+    @Test func iconChangedIsEditable() {
+        let slack = ItemKey(bundleID: "com.tinyspeck.slackmacgap")
+        #expect(ConditionDraft(.iconChanged(slack))?.leaves.first?.kind == .iconChanged)
+        #expect(roundTrip(.not(.iconChanged(slack))) == .not(.iconChanged(slack)))
+        let both: [Condition] = [.iconChanged(slack), .network(.wifi)]
+        #expect(roundTrip(.allOf(both)) == .allOf(both))
+
+        var draft = ConditionDraft(match: .all, leaves: [LeafConditionDraft(kind: .iconChanged)])
+        #expect(draft.condition == nil, "No item picked yet")
+        draft.leaves[0].item = slack
+        #expect(draft.condition == .iconChanged(slack))
     }
 
     @Test func incompleteDraftHasNoCondition() {

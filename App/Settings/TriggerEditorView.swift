@@ -88,6 +88,7 @@ struct TriggerEditorView: View {
                     ConditionLeafEditor(
                         leaf: leafBinding(leaf.id),
                         canRemove: draft.leaves.count > 1,
+                        items: items,
                         onRemove: { self.draft?.leaves.removeAll { $0.id == leaf.id } }
                     )
                 }

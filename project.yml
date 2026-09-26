@@ -9,6 +9,10 @@ options:
 packages:
   SomabarKit:
     path: .
+  # App target only; the library targets in Package.swift stay free of it.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
 
 targets:
   Somabar:
@@ -25,6 +29,7 @@ targets:
         product: BarEngine
       - package: SomabarKit
         product: NotchKit
+      - package: Sparkle
     info:
       path: App/Support/Info.plist
       properties:
@@ -44,12 +49,21 @@ targets:
         # ever gate those reads, it asks instead of ending the process.
         NSCameraUsageDescription: "Somabar only checks whether another app is using the camera, for your triggers. It never captures video."
         NSMicrophoneUsageDescription: "Somabar only checks whether another app is using the microphone, for your triggers. It never records audio."
+        # Now Playing in the notch: the track's position, its artwork and the play controls for
+        # Music and Spotify go over AppleScript.
+        NSAppleEventsUsageDescription: "Somabar shows what Music or Spotify is playing in the notch and passes on play, pause and skip."
+        # Sparkle 2. Updates stay off until both are non-empty. Paste the public key printed by
+        # Sparkle's generate_keys into SUPublicEDKey; the private key stays in your keychain.
+        SUFeedURL: https://github.com/anandghegde/somabar/releases/latest/download/appcast.xml
+        SUPublicEDKey: ""
         CFBundleURLTypes:
           - CFBundleURLName: app.somabar.url
             CFBundleURLSchemes: [somabar]
     entitlements:
       path: App/Support/Somabar.entitlements
-      properties: {}
+      properties:
+        # Hardened runtime blocks Apple events without this (Now Playing's AppleScript).
+        com.apple.security.automation.apple-events: true
     settings:
       base:
         PRODUCT_NAME: Somabar

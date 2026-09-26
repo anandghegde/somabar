@@ -40,14 +40,20 @@ struct GeneralSettingsView: View {
                     + "“Hide when a menu closes” only shortens an auto-hide that is on.")
                     .foregroundStyle(.secondary)
             }
-            SwiftUI.Section("Menu bar") {
+            SwiftUI.Section {
                 Toggle("Show dividers", isOn: $model.preferences.showDividers)
                 Picker("Spacing", selection: $model.preferences.spacing) {
                     Text("Default").tag(Spacing.default)
                     Text("Snug").tag(Spacing.snug)
                     Text("Tight").tag(Spacing.tight)
                 }
+            } header: {
+                Text("Menu bar")
+            } footer: {
+                Text("Apps opened from now on use the new spacing; logging out applies it to every item.")
+                    .foregroundStyle(.secondary)
             }
+            UpdatesSettingsSection()
         }
         .formStyle(.grouped)
     }

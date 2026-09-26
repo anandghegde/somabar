@@ -17,6 +17,11 @@ final class NotchModel {
     var opacity: Double = 0
 
     var pulseText = ""
+    var pulseSymbol = "bell.fill"
+    /// The live activity that won Compact (`ActivityCenter`); nil when none did.
+    var compact: CompactPresentation?
+    /// The live activities listed in Expanded, highest priority first. The timer has its own row.
+    var activities: [ActivityRow] = []
     /// m:ss while the timer is running or paused; nil when there is none.
     var timerText: String?
     var timerPaused = false

@@ -154,6 +154,8 @@ struct PaletteList: View {
         HStack(spacing: 10) {
             Image(nsImage: row.icon)
                 .resizable()
+                .interpolation(.high)
+                .scaledToFit()
                 .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.appName).lineLimit(1)
@@ -356,7 +358,7 @@ extension SomabarController {
         guard item.isIdentified else {
             return PaletteRow(
                 id: item.windowID, appName: "Unidentified item", title: "", detail: "Somabar can point at it but not open it",
-                tag: tag, icon: ItemIcons.icon(bundleID: DiscoveredItem.unknownBundleID, pid: nil)
+                tag: tag, icon: itemImage(windowID: item.windowID, bundleID: DiscoveredItem.unknownBundleID, pid: nil)
             )
         }
         let appName = item.appName.isEmpty ? item.key.bundleID : item.appName
@@ -366,7 +368,7 @@ extension SomabarController {
         }
         return PaletteRow(
             id: item.windowID, appName: appName, title: item.key.title, detail: detail,
-            tag: tag, icon: ItemIcons.icon(bundleID: item.key.bundleID, pid: item.pid)
+            tag: tag, icon: itemImage(windowID: item.windowID, bundleID: item.key.bundleID, pid: item.pid)
         )
     }
 

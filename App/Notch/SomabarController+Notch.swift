@@ -20,24 +20,55 @@ extension SomabarController {
             return
         }
         surface.start()
+        notchSurface = surface
+        // Before adopting the timer, so the timer arrives as an activity.
+        activities.attach(surface)
         if let timer {
             surface.adopt(timer)
         }
-        notchSurface = surface
     }
 
+    /// At quit: the surface and the activities feeding it.
     func stopNotchSurface() {
+        activities.stop()
         notchSurface?.stop()
         notchSurface = nil
+        activities.attach(nil)
     }
 
-    /// The built-in display when it has a notch; otherwise the primary display, which only gets
-    /// a surface with the drawn notch on.
+    /// The notch surface lives on the built-in display: around its camera, or drawn when it has
+    /// none and the drawn notch is on. External displays never get one while the built-in
+    /// display is on; a Mac without one (a desktop, or a laptop with its lid closed) gets the
+    /// drawn notch on the primary display.
     private static func notchScreen(preferences: Preferences) -> NSScreen? {
-        if let builtIn = ScreenGeometry.builtInScreen, ScreenGeometry.notchGeometry(for: builtIn).hasSurface {
-            return builtIn
+        ScreenGeometry.builtInScreen ?? ScreenGeometry.primaryScreen
+    }
+
+    // MARK: - Activities
+
+    /// One per app, like the controller. Kept outside the controller's body, which is at
+    /// SwiftLint's length limit.
+    static let activityCenter = ActivityCenter()
+
+    /// `App/Notch/Activities/`: the notch's live activities.
+    var activities: ActivityCenter { Self.activityCenter }
+
+    /// Starts the live activities and feeds them the context and the active profile. Runs from
+    /// `startDisplayRules`, before the surface exists; `startNotchSurface` attaches it.
+    func startActivities() {
+        activities.settings = { [weak self] in self?.document.active.notch ?? .everyday }
+        activities.profiles = { [weak self] in
+            (self?.document.activeProfile ?? "", self?.document.profileBeforeTriggers)
         }
-        return ScreenGeometry.primaryScreen
+        activities.switchProfile = { [weak self] name in self?.switchProfile(to: name) }
+        context.onSnapshotChange = { [weak self] reason in
+            guard let self else { return }
+            self.activities.contextChanged(self.context.snapshot)
+            // The active display may have moved (an app on another display came forward).
+            self.evaluateDisplayRules(reason: reason)
+        }
+        activities.start(snapshot: context.snapshot)
+        activities.attach(notchSurface)
     }
 
     /// New items noticed by a scan pulse the notch.
@@ -80,13 +111,15 @@ extension SomabarController {
 
     static let displayLog = Logger(subsystem: "app.somabar", category: "Displays")
 
-    /// Somabar manages the primary display's bar only; the rules look at it.
-    static var primaryDisplayWidthPoints: Double {
-        Double(ScreenGeometry.primaryScreen?.frame.width ?? 0)
+    /// The width the rules look at: the active display's, or the widest one's when inactive
+    /// displays are not left alone (`DisplayRules.evaluatedWidthPoints`).
+    var displayRuleWidthPoints: Double {
+        document.preferences.displayRules.evaluatedWidthPoints(in: context.snapshot)
     }
 
     func startDisplayRules() {
         context.onDisplaysChanged = { [weak self] in self?.displaysChanged() }
+        startActivities()
         evaluateDisplayRules(reason: "launch")
     }
 
@@ -104,7 +137,7 @@ extension SomabarController {
     /// Logs the show-everything decision when it changes and rescans so the bar follows.
     /// `effectiveLayout` applies the rule itself, so this only reports and nudges.
     func evaluateDisplayRules(reason: String) {
-        let width = Self.primaryDisplayWidthPoints
+        let width = displayRuleWidthPoints
         let rules = document.preferences.displayRules
         let showsEverything = rules.showsEverything(screenWidthPoints: width)
         guard showsEverything != displayRuleDecision else { return }
@@ -112,9 +145,9 @@ extension SomabarController {
         displayRuleDecision = showsEverything
         let threshold = rules.showEverythingAbovePoints.map { "\($0) pt" } ?? "off"
         let effect = showsEverything ? "showing Hidden and Tucked items" : "layout as stored"
-        Self.displayLog.notice(
-            "Primary display \(Int(width)) pt, show all above \(threshold, privacy: .public) (\(reason, privacy: .public)): \(effect, privacy: .public)"
-        )
+        let display = rules.leaveInactiveDisplaysUntouched ? "Active" : "Widest"
+        let decision = "\(display) display \(Int(width)) pt, show all above \(threshold)"
+        Self.displayLog.notice("\(decision, privacy: .public) (\(reason, privacy: .public)): \(effect, privacy: .public)")
         guard !isFirst else { return }
         abandonReconcile(reason: "display rules")
         scanNow(reason: "display rules")

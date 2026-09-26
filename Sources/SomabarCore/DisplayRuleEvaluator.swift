@@ -22,4 +22,13 @@ extension DisplayRules {
         result.tucked = []
         return result
     }
+
+    /// The width the rules are evaluated against: the active display's when inactive displays
+    /// are left untouched (the widest one's until the active one is known), else the widest.
+    public func evaluatedWidthPoints(in context: ContextSnapshot) -> Double {
+        if leaveInactiveDisplaysUntouched, context.activeDisplayPoints > 0 {
+            return Double(context.activeDisplayPoints)
+        }
+        return Double(context.widestDisplayPoints)
+    }
 }

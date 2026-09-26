@@ -84,6 +84,8 @@ final class SomabarController: NSObject, NSMenuDelegate {
         startTriggers()
         startDisplayRules()
         startNotchSurface()
+        applySpacingAtLaunch()
+        startUpdates()
 
         if case .glyphOnly(let reason) = engine.capability {
             log.error("\(reason, privacy: .public)")
@@ -111,6 +113,7 @@ final class SomabarController: NSObject, NSMenuDelegate {
         settingsWindow?.close()
         saveDocument(reason: "Quit")
         engine.teardown()
+        restoreSpacingAtQuit()
     }
 
     // MARK: - Hide and reveal
@@ -198,6 +201,7 @@ final class SomabarController: NSObject, NSMenuDelegate {
         let found = await BarScanner.scan(ownFrames: engine.ownFrames)
         items = found
         lastScan = Date()
+        refreshItemImages()
         // Before absorbing: a screen-sharing trigger changes what the bar should look like.
         context.setScreenShared(found.contains { $0.key.bundleID == SystemItems.screenSharingAgent })
         if absorbScan() {
@@ -380,6 +384,7 @@ final class SomabarController: NSObject, NSMenuDelegate {
         if !AccessibilityPermission.isTrusted {
             menu.addItem(withTitle: "Grant Accessibility Access…", action: #selector(grantAccessAction), keyEquivalent: "")
         }
+        addUpdatesItem(to: menu)
         menu.addItem(withTitle: "Settings…", action: #selector(showSettingsAction), keyEquivalent: ",")
         menu.addItem(.separator())
 
