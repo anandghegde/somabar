@@ -10,3 +10,9 @@ App/Support/Somabar.entitlements
 
 # Serena tooling state
 .serena/
+
+# Local release settings: signing identity, notary profile, Sparkle public key
+Config/Release.local.xcconfig
+Config/release.local.env
+# Release output (archives, dmg, appcast)
+dist/

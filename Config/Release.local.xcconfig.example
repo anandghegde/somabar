@@ -1,0 +1,9 @@
+// Copy to Config/Release.local.xcconfig (ignored by git). Somabar.xcconfig includes it, so
+// every build made from this checkout, Debug and Release, carries these values.
+
+// The public EdDSA key printed by Scripts/sparkle-keys.sh (Sparkle's generate_keys). The
+// private half stays in your login keychain. Leave empty to build with updates off.
+SPARKLE_PUBLIC_ED_KEY =
+
+// Only if you publish the appcast somewhere else. Write "//" as "/$()/".
+// SPARKLE_FEED_URL = https:/$()/example.com/somabar/appcast.xml

@@ -53,7 +53,13 @@ public struct AgentMessage: Equatable, Sendable {
     }
 
     /// One line from the socket; nil when it is not a JSON object with a session and a state.
+    /// The socket reads lines with `AgentLine.parse`, which also knows permission requests.
     public static func parse(line: some StringProtocol) -> AgentMessage? {
+        fields(line: line).flatMap(parse(fields:))
+    }
+
+    /// A JSON object's string and number values; nil when the line is not one, or too long.
+    static func fields(line: some StringProtocol) -> [String: String]? {
         let data = Data(line.utf8)
         guard data.count <= maxLineBytes,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -66,7 +72,7 @@ public struct AgentMessage: Equatable, Sendable {
                 fields[key] = number.stringValue
             }
         }
-        return parse(fields: fields)
+        return fields
     }
 
     /// `somabar://agent?session=…&state=…&project=…&detail=…&terminal=…`.

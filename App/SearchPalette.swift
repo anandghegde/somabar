@@ -351,13 +351,15 @@ final class SearchPaletteController: NSObject, NSTextFieldDelegate, NSWindowDele
 
     private func pressMenuEntry(_ index: Int) {
         guard let menu, menuMatches.indices.contains(index) else { return }
-        let entry = menuMatches[index].entry
+        let match = menuMatches[index]
+        let entry = match.entry
         guard entry.isEnabled, let handle = menu.elements[entry.path] else {
             NSSound.beep()
             return
         }
+        // `close()` empties `menuMatches`, so the title is built from the match taken above.
         close()
-        menus.press(handle, (menu.drill.breadcrumb + menuMatches[index].trail + [entry.title]).joined(separator: " › "))
+        menus.press(handle, (menu.drill.breadcrumb + match.trail + [entry.title]).joined(separator: " › "))
     }
 
     func controlTextDidChange(_ notification: Notification) {

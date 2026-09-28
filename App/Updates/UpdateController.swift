@@ -26,7 +26,9 @@ final class UpdateController {
 
     private static func hasValue(_ key: String, in bundle: Bundle) -> Bool {
         guard let value = bundle.object(forInfoDictionaryKey: key) as? String else { return false }
-        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Both come from build settings (Config/Somabar.xcconfig); an unexpanded one is unset.
+        return !trimmed.isEmpty && !trimmed.hasPrefix("$(")
     }
 
     // MARK: Lifecycle

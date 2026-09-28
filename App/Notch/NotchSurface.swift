@@ -21,6 +21,8 @@ final class NotchSurface: NSObject {
     /// Expanded grows by one row per live activity, up to this many (`ActivityCenter`).
     static let maxActivityRows = 2
     static let activityRowHeight: CGFloat = 54
+    /// The Hidden items row and the spacing above it, left out when the profile turns it off.
+    static let hiddenRowHeight: CGFloat = 28
     static let animationSeconds = 0.35
     /// A little slack so a pointer on the panel's edge does not count as leaving.
     static let leaveSlack: CGFloat = 4
@@ -216,7 +218,7 @@ final class NotchSurface: NSObject {
         case .compact where widensCompact: geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide)
         case .compact: geometry.compactFrame(extensionPerSide: geometry.isDrawn ? 0 : Self.compactExtension)
         case .pulse: geometry.compactFrame(extensionPerSide: NotchGeometry.maxCompactExtensionPerSide)
-        case .expanded: geometry.expandedFrame(size: Self.expandedSize(rows: model.activities))
+        case .expanded: geometry.expandedFrame(size: expandedPanelSize)
         }
     }
 
@@ -286,6 +288,12 @@ final class NotchSurface: NSObject {
         }
     }
 
+    /// Expanded as the model has it: its activity rows, and the Hidden items row when shown.
+    private var expandedPanelSize: CGSize {
+        let size = Self.expandedSize(rows: model.activities)
+        return model.showsHidden ? size : CGSize(width: size.width, height: size.height - Self.hiddenRowHeight)
+    }
+
     /// Expanded with room for the rows it shows and their lines.
     private static func expandedSize(rows: [ActivityRow]) -> CGSize {
         let shown = rows.prefix(maxActivityRows)
@@ -319,11 +327,16 @@ final class NotchSurface: NSObject {
         let bundleIDs = hidden.map(\.bundleID).filter { seen.insert($0).inserted }
         model.hiddenIcons = bundleIDs.compactMap(Self.icon(forBundleID:))
         model.hiddenCount = hidden.count
+        model.showsHidden = controller.document.active.notch.enabledActivities.contains(.hiddenItemsTray)
     }
 
     private func switchProfile(to name: String) {
         controller?.switchProfile(to: name)
         refreshPanel()
+        // The new profile may show or leave out the Hidden items row, which changes the height.
+        if machine.state == .expanded, let target = shapeFrame(for: .expanded).map(local) {
+            withAnimation(.easeInOut(duration: 0.2)) { model.shapeRect = target }
+        }
     }
 
     private static func icon(forBundleID bundleID: String) -> NSImage? {

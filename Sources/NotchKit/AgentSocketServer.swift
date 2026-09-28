@@ -2,14 +2,18 @@ import Darwin
 import Foundation
 import os
 import Security
+import SomabarCore
 
-/// N11's local channel: a Unix domain socket that takes one JSON `AgentMessage` per line.
+/// N11's local channel: a Unix domain socket that takes one JSON `AgentLine` per line.
 ///
 /// Local only, never a network listener. The socket's folder is 0700 and the socket 0600, and
 /// each connection is checked again: the peer must run as this user and its code signature must
 /// be valid. Reads are event-driven (`DispatchSource`), so an idle socket costs nothing.
-/// Somabar never writes back: approving a tool call from the notch waits for an outside review
-/// of this socket (PRD, P2).
+///
+/// Status reports are one-way. A permission request (P2) keeps its connection open; the only
+/// thing Somabar ever writes is the one reply line to the connection that asked, then it closes.
+/// While `acceptsRequests` is off a request counts as a "needs you" report and is answered "ask"
+/// at once. One request per connection; later lines on it are ignored.
 public final class AgentSocketServer: @unchecked Sendable {
     /// What is known of a connecting process.
     public struct Peer: Sendable {
@@ -19,8 +23,13 @@ public final class AgentSocketServer: @unchecked Sendable {
         public var signingID: String?
     }
 
-    /// Called on the server's queue for each accepted line.
+    /// Called on the server's queue for each accepted status line.
     public var onMessage: (@Sendable (AgentMessage) -> Void)?
+    /// Called on the server's queue for a permission request, with the connection's number. The
+    /// connection stays open until `answer` (or the peer closes it).
+    public var onRequest: (@Sendable (AgentPermissionRequest, UInt64) -> Void)?
+    /// Called on the server's queue when a connection with an unanswered request closes.
+    public var onRequestClosed: (@Sendable (UInt64) -> Void)?
     /// Decides whether a peer may talk; by default, this user and a valid signature.
     public var acceptsPeer: @Sendable (Peer) -> Bool = { $0.uid == getuid() && $0.signingID != nil }
 
@@ -33,13 +42,19 @@ public final class AgentSocketServer: @unchecked Sendable {
     private var listenFD: Int32 = -1
     private var listenSource: DispatchSourceRead?
     private var connections: [Int32: Connection] = [:]
+    private var nextSerial: UInt64 = 1
+    private var takesRequests = false
 
     private final class Connection {
         let source: DispatchSourceRead
+        let serial: UInt64
         var buffer = Data()
+        /// The request this connection waits on an answer for.
+        var request: AgentPermissionRequest?
 
-        init(source: DispatchSourceRead) {
+        init(source: DispatchSourceRead, serial: UInt64) {
             self.source = source
+            self.serial = serial
         }
     }
 
@@ -67,11 +82,10 @@ public final class AgentSocketServer: @unchecked Sendable {
         }
     }
 
-    /// `~/Library/Application Support/Somabar/agent.sock`.
+    /// `agent.sock` beside the layout file: `~/Library/Application Support/Somabar`, or
+    /// `$SOMABAR_DOCUMENT_DIR` so a test copy does not take over the real socket.
     public static var defaultPath: String {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appending(path: "Library/Application Support")
-        return support.appending(path: "Somabar/agent.sock").path
+        DocumentStore.defaultDirectory().appending(path: "agent.sock").path
     }
 
     // MARK: - Lifecycle
@@ -86,6 +100,23 @@ public final class AgentSocketServer: @unchecked Sendable {
 
     public func stop() {
         queue.sync { stopOnQueue() }
+    }
+
+    /// Whether permission requests wait for an answer. Off answers each one "ask" at once.
+    public func setAcceptsRequests(_ accepts: Bool) {
+        queue.sync { takesRequests = accepts }
+    }
+
+    /// Writes the one reply line to the connection that asked, and closes it. Nothing happens when
+    /// that connection has gone or asked something else.
+    public func answer(connection serial: UInt64, id: String, decision: AgentDecision) {
+        queue.async { [weak self] in
+            guard let self,
+                  let entry = self.connections.first(where: { $0.value.serial == serial }),
+                  let request = entry.value.request, request.id == id
+            else { return }
+            self.reply(entry.key, request, decision)
+        }
     }
 
     private func startOnQueue() -> Result<Void, StartError> {
@@ -140,8 +171,13 @@ public final class AgentSocketServer: @unchecked Sendable {
 
     private func stopOnQueue() {
         guard listenFD >= 0 else { return }
-        for fd in Array(connections.keys) {
-            drop(fd)
+        for (fd, connection) in connections {
+            // A waiting hook hears "ask" rather than waiting out its own timeout.
+            if let request = connection.request {
+                reply(fd, request, .ask)
+            } else {
+                drop(fd)
+            }
         }
         listenSource?.cancel()
         listenSource = nil
@@ -172,7 +208,8 @@ public final class AgentSocketServer: @unchecked Sendable {
             let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             source.setEventHandler { [weak self] in self?.read(fd) }
             source.setCancelHandler { close(fd) }
-            connections[fd] = Connection(source: source)
+            connections[fd] = Connection(source: source, serial: nextSerial)
+            nextSerial += 1
             source.resume()
         }
     }
@@ -183,30 +220,58 @@ public final class AgentSocketServer: @unchecked Sendable {
         let count = Darwin.read(fd, &chunk, chunk.count)
         if count < 0, errno == EAGAIN || errno == EINTR { return }
         guard count > 0 else {
-            // End of stream: a last line without a newline still counts.
-            deliver(connection.buffer)
+            // End of stream: a last line without a newline still counts. A hook that still waits
+            // for an answer keeps its end open, so a close means it has gone.
+            deliver(connection.buffer, from: fd)
+            guard connections[fd] != nil else { return }
+            let waited = connection.request != nil
             drop(fd)
+            if waited { onRequestClosed?(connection.serial) }
             return
         }
         connection.buffer.append(contentsOf: chunk[0..<count])
         while let newline = connection.buffer.firstIndex(of: 0x0A) {
             let line = connection.buffer[connection.buffer.startIndex..<newline]
-            deliver(Data(line))
+            deliver(Data(line), from: fd)
+            guard connections[fd] != nil else { return }
             connection.buffer.removeSubrange(connection.buffer.startIndex...newline)
         }
         if connection.buffer.count > AgentMessage.maxLineBytes {
             log.error("Agent socket dropped a connection that sent an overlong line")
+            let waited = connection.request != nil
             drop(fd)
+            if waited { onRequestClosed?(connection.serial) }
         }
     }
 
-    private func deliver(_ line: Data) {
-        guard !line.isEmpty, let text = String(data: line, encoding: .utf8) else { return }
-        guard let message = AgentMessage.parse(line: text) else {
-            log.info("Agent socket ignored a line that is not a status message")
-            return
+    private func deliver(_ line: Data, from fd: Int32) {
+        guard !line.isEmpty, let text = String(data: line, encoding: .utf8),
+              let connection = connections[fd], connection.request == nil
+        else { return }
+        switch AgentLine.parse(line: text) {
+        case .status(let message):
+            onMessage?(message)
+        case .request(let request):
+            guard takesRequests, let onRequest else {
+                // Replies are off: the agent still shows as waiting, and asks in its terminal.
+                onMessage?(request.message)
+                reply(fd, request, .ask)
+                return
+            }
+            connection.request = request
+            onRequest(request, connection.serial)
+        case nil:
+            log.info("Agent socket ignored a line that is neither a status report nor a request")
         }
-        onMessage?(message)
+    }
+
+    /// The one write Somabar makes: a short line into an empty socket buffer, so a single
+    /// non-blocking write takes it. Then the connection closes.
+    private func reply(_ fd: Int32, _ request: AgentPermissionRequest, _ decision: AgentDecision) {
+        let data = request.reply(decision)
+        _ = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+        log.notice("Agent request answered: \(decision.rawValue, privacy: .public)")
+        drop(fd)
     }
 
     private func drop(_ fd: Int32) {

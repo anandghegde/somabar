@@ -70,6 +70,7 @@ extension SomabarController {
         }
         activities.start(snapshot: context.snapshot)
         activities.attach(notchSurface)
+        activities.agents.setReplies(document.preferences.agentReplies)
         activities.agents.setListening(document.preferences.agentSocket)
     }
 

@@ -139,7 +139,9 @@ struct ExpandedView: View {
             ForEach(model.activities.prefix(NotchSurface.maxActivityRows)) { row in
                 ActivityRowView(row: row)
             }
-            hiddenRow
+            if model.showsHidden {
+                hiddenRow
+            }
         }
         .font(.system(size: 12, weight: .medium))
         .padding(.horizontal, 18)

@@ -7,12 +7,14 @@ import Testing
         let preferences = Preferences()
         #expect(preferences.menuBarStyle.isPlain)
         #expect(preferences.agentSocket == false)
+        #expect(preferences.agentReplies == false)
     }
 
     @Test func olderFilesDecodeWithDefaults() throws {
         let preferences = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
         #expect(preferences.menuBarStyle == MenuBarStyle())
         #expect(preferences.agentSocket == false)
+        #expect(preferences.agentReplies == false, "Answering prompts is never on by upgrade")
         let partial = try JSONDecoder().decode(MenuBarStyle.self, from: Data(#"{"dark":{"hairline":true}}"#.utf8))
         #expect(partial.light.isPlain)
         #expect(partial.dark.hairline)
@@ -22,6 +24,7 @@ import Testing
     @Test func roundTrips() throws {
         var preferences = Preferences()
         preferences.agentSocket = true
+        preferences.agentReplies = true
         preferences.menuBarStyle.light = MenuBarStyle.Appearance(
             tint: .color, color: MenuBarStyle.RGB(red: 0.2, green: 0.4, blue: 0.6), strength: 0.5, hairline: true)
         preferences.menuBarStyle.dark.tint = .accent

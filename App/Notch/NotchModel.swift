@@ -32,6 +32,8 @@ final class NotchModel {
     var activeProfile = ""
     var hiddenIcons: [NSImage] = []
     var hiddenCount = 0
+    /// The active profile's `hiddenItemsTray` switch: whether Expanded lists the Hidden items.
+    var showsHidden = true
 
     @ObservationIgnored var actions = NotchActions()
 }

@@ -1,0 +1,16 @@
+// Build settings shared by every configuration of the Somabar app target (see project.yml).
+//
+// The Sparkle feed and public key are build settings so a release key never has to live in
+// the repository. Info.plist reads them as $(SPARKLE_FEED_URL) and $(SPARKLE_PUBLIC_ED_KEY).
+// The updater starts only when both are non-empty, so a build from a plain checkout, where
+// the key is empty, never checks for updates.
+//
+// To sign releases, copy Release.local.xcconfig.example to Release.local.xcconfig (ignored by
+// git) and set the key there. Scripts/sparkle-keys.sh prints it.
+
+// "//" starts a comment in an xcconfig, hence the empty $() between the slashes.
+SPARKLE_FEED_URL = https:/$()/github.com/anandghegde/somabar/releases/latest/download/appcast.xml
+SPARKLE_PUBLIC_ED_KEY =
+
+// Optional, and last so its values win.
+#include? "Release.local.xcconfig"

@@ -4,8 +4,10 @@ Slice 2, "engine alpha on macOS 26", plus the trigger runtime, plus the Slice 3 
 palette, Hidden items tray, Settings with a trigger editor, trigger notifications, the notch
 surface and timer, the wide-display rule), plus the Slice 4 fill-ins (Sparkle updates, item
 spacing, real item images, the icon-change trigger, the notch's live activities, the
-active-display rule). Everything after Slice 2 builds and is unit-tested but has not been
-opened by hand. Last updated 2026-09-26 on macOS 26.4.1, Xcode 26.4.1, Swift 6.3.1, a Mac mini
+active-display rule). The search palette, the tray, the Items window's groups, Settings, the
+drawn notch and the menu bar style were driven with synthetic input on 2026-09-27 (below); the
+rest of what came after Slice 2 builds and is unit-tested but has not been opened. Last updated
+2026-09-27 on macOS 26.4.1, Xcode 26.4.1, Swift 6.3.1, a Mac mini
 M4 with one 4K display (1920 × 1080 points, no notch), on Ethernet, with a Screen Sharing
 session open to it.
 
@@ -90,7 +92,58 @@ driven the gestures.
   `Spacing`, `Updates`, `icons` and `activities`. Read with
   `/usr/bin/log show --last 5m --predicate 'subsystem == "app.somabar"' --info --style compact`.
   Only `.info` and above persist; `.debug` lines do not show up in `log show`.
-- 291 unit tests in 57 suites pass (`swift test`); `swiftlint` is clean; the app target builds
+- **Search palette and menu drill-down (2026-09-27).** `somabar://search` opens the palette
+  (600 × 419 pt) while Ghostty stays frontmost; typed keys reach it and filter ("clean" leaves
+  CleanShot X). → lists the selected item's menu (`Read 16 menu entries from
+  pl.maketheweb.cleanshotx`, 9 from CodexBar, 2 from Proton Pass, shortcuts such as ⇧⌘5
+  shown); typing filters the level ("ref" leaves Refresh); ↩ presses the entry (`Pressed menu
+  entry CodexBar › Refresh`). ← at the start of the query and ⌫ on an empty one go back, with
+  the old query restored (fully selected); ← mid-query moves the caret. ↩ on an item row opens
+  it (`Opened com.steipete.codexbar with AXPress`, its menu drops). ⎋, a click outside and a
+  click on the bar close the palette; the bar click also reveals, as any empty-bar click does.
+  Pressing a menu entry used to crash (index out of range: `close()` empties the matches before
+  the entry's title was read); fixed in `App/SearchPalette.swift`. No item on this bar has a
+  submenu, so submenus were not opened.
+- **Hidden items tray (2026-09-27).** `somabar://tray` opens it (460 × 227 pt) under the glyph,
+  listing Hidden items with absent ones greyed out. A click on CodexBar revealed it and opened
+  its menu through `AXPress`, and the tray closed. ⎋, a click outside, and a second
+  `somabar://tray` close it. The `ItemMover.click` fallback was not needed and not exercised.
+- **Groups (2026-09-27).** In the Items window, right-click › Add to Group › New Group made a
+  group; its header shows glyph, name and count, folds (kept in `somabar.items.collapsedGroups`),
+  and its ⇆ menu and right-click menu move it (`Saved the layout: Items: moved New Group to
+  Tucked`, then `Drift … Shown→Tucked` and `Reconciled the bar (groups edited): moved 1`). The
+  group glyph landed just left of Somabar's glyph in Shown, so the "NSStatusItem Preferred
+  Position" default works. A click on the glyph opens the member row (108 × 133 pt); a click
+  on a Tucked member there revealed and opened it. The group glyph used to be scanned as an
+  unidentified item (10 items, 9 identified) and listed in the palette; the scan now leaves it
+  out with Somabar's own windows (`App/Groups/SomabarController+Groups.swift`,
+  `App/SomabarController+Scan.swift`), and scans read 9 of 9.
+- **Settings (2026-09-27).** ⌘, with the glyph's menu open opens Settings (620 × 552 pt) and
+  Somabar becomes frontmost. The Groups tab shows the name, the glyph field, "Members are in:
+  Tucked" and the member list; the glyph field saved "star" on Return and the bar glyph changed.
+  The glyph menu's Triggers submenu shows "No triggers in the layout file" and "Remember This
+  Router (b0:39:56:0b:e1:e5)".
+- **Drawn notch (2026-09-27).** With `drawnNotch: true` the log reads `Notch surface up (drawn
+  notch at x=870, 180 pt wide)`; the window is 460 × 300 pt at the top centre. Compact showed the
+  call activity (green dot, mic glyph, elapsed time) for `avconferenced`'s microphone.
+  `somabar://timer?1` logged `Timer started: 1 min` and `Timer finished` and `Pulse: Time's up` 60 s later. Resting
+  the pointer on the notch expands it: profile chips, the timer row, the activity rows and the
+  Hidden items row. In Expanded, a click on a profile chip switched profile, the 5 min pill
+  started a timer, and Pause, Resume and Cancel worked (`Timer cancelled`), all while another app
+  was frontmost. An `external` trigger turned on by `somabar://set?demo=on` pulsed its name
+  (`Pulse: Demo`).
+- **Agent activity through the URL (2026-09-27).** With `agentSocket` on and `agentActivity`
+  enabled in the profile, `somabar://agent?session=t1&state=working` logged `Agent working (1
+  sessions)`; `needsYou` pulsed "somabar needs you" and added a row with the detail to Expanded;
+  `done` pulsed "somabar finished"; `ended` left 0 sessions. Compact stayed on the call, which
+  ranks higher.
+- **Menu bar style (2026-09-27).** `Menu bar style on 1 displays`; the window sits at layer 23,
+  0,0, 1920 × 30 pt, exactly over the bar, and a red tint with a hairline shows through the
+  macOS 26 bar, lined up (screenshot).
+- **The reconciler retries after waiting for input.** A pass that gave up because the pointer
+  rested on the bar (`Bar not idle … reconciling later`) was never scheduled again; it now
+  rescans 2 s later (`App/SomabarController+Layout.swift`).
+- 330 unit tests in 62 suites pass (`swift test`); `swiftlint` is clean; the app target builds
   with no warnings.
 
 ## Unverified or assumed
@@ -135,26 +188,27 @@ driven the gestures.
   condition ends) is unit-tested on the runtime; no hand has dragged a held item.
 - **Time-of-day triggers** tick once a minute (`Context changed (minute)` was seen) but no
   window edge was crossed during testing.
-- **The "Triggers" submenu** (what holds, which profile comes back, "Remember This Router") is
-  built but has not been opened; `knownRouter` conditions therefore ran only in unit tests.
-- **Search palette and tray** are unit-tested for ranking only (`ItemSearchTests`); neither
-  window has been opened by a hand. Unconfirmed: that the non-activating panels take typing and
-  ⎋ while another app stays in front, that a click outside or on the bar closes them, where the
-  tray lands on a notched or multi-display Mac, and that the hot keys (⌃⌥/, ⌃⌥↓) fire. "Items…"
-  no longer shows ⌃⌥/; that shortcut now belongs to "Search Items…".
+- **The "Triggers" submenu** was opened with no triggers in the file (above); what holds and
+  which profile comes back were not seen there, and `knownRouter` conditions ran only in unit
+  tests.
+- **Search palette and tray** were driven with synthetic keys and clicks (above). Not seen:
+  where the tray lands on a notched or multi-display Mac, the hot keys (⌃⌥/, ⌃⌥↓), submenus
+  in the drill-down, and a real keyboard and pointer. "Items…" no longer shows ⌃⌥/; that
+  shortcut now belongs to "Search Items…".
 - **Opening an item from the palette or tray** uses `AXPress` with a 0.5 s timeout and treats a
   timeout as success, because some apps answer only once their menu closes. Without an element
   it clicks the item's window through `ItemMover.click` after waiting up to 1.2 s for the
-  revealed item to settle. Neither path has been exercised on a real bar; Apple's, hosted and
-  unidentified items only get the pointer.
+  revealed item to settle. The `AXPress` path opened CodexBar from the palette, the tray and a
+  group row; the click fallback has not run. Apple's, hosted and unidentified items only get
+  the pointer.
 - **Settings window.** Builds, and its editing rules are unit-tested (hot key clashes, profile
   rename/remove/add, condition editor round trips, the `notifyWhenTriggerFires` default and
-  round trip), but nobody has opened it. Unconfirmed on a real Mac: the key recorder taking
-  focus in a menu-bar-only app, ⌘-combos reaching it, and hot keys being switched off during
-  recording and back on afterwards; whether the live changes (gestures, dividers, the notch
-  guard rescan, trigger re-evaluation) take effect without a relaunch; and ⌘, from the glyph's
-  menu. Edits are saved 0.8 s after the last change, and whatever is still waiting is saved
-  when the window closes.
+  round trip). ⌘, from the glyph's menu and the Groups tab were checked (above). Not seen: the
+  key recorder taking focus in a menu-bar-only app, ⌘-combos reaching it, and hot keys being
+  switched off during recording and back on afterwards; whether the other live changes
+  (gestures, dividers, the notch guard rescan, trigger re-evaluation) take effect without a
+  relaunch; the other tabs. Edits are saved 0.8 s after the last change, and whatever is still
+  waiting is saved when the window closes.
 - **Spacing (M10).** Snug writes `NSStatusItemSpacing` 12 and `NSStatusItemSelectionPadding`
   8, Tight 6 and 6, into the current-host global domain through `CFPreferences`; Default
   removes the keys, but only when they hold one of Somabar's pairs, so values a person set by
@@ -211,29 +265,26 @@ driven the gestures.
 - **Trigger notifications.** `.somabarTriggerFired` is posted when a trigger starts holding or
   switches profile; when the person asks for it, a system notification follows, but not at
   launch. The permission prompt and delivery have not been seen on an ad-hoc signed build, nor
-  whether the banner shows while Settings is in front.
-- **The notch surface has not been seen.** It builds, and its timer and the display rule are
-  unit-tested, but nobody has watched it. This Mac has no notch, so only the drawn notch
-  (`drawnNotch: true`) can be tried here. The camera-housing layout (56 pt of compact beside
-  the camera, 80 pt for a pulse, truncated pulse text) and the choice of the built-in display
-  when it has a notch are assumed. Hover intent, the click-through of the transparent canvas
-  (`ignoresMouseEvents` toggled on pointer moves), and first-click buttons on the
-  non-activating panel while another app is active all need a real pointer. The trigger pulse
-  listens for `app.somabar.triggerFired` with `userInfo["names"]`. The surface is rebuilt on a
-  screen-parameters change only when the notch geometry changed, and a running timer carries
-  over; neither has been exercised. The hot key for the 25-minute timer is unassigned by
-  default; without a surface (no notch and `drawnNotch` off) it and `somabar://timer` only
-  log a notice.
+  whether the banner shows while Settings is in front. The notch pulse it drives was seen.
+- **The notch surface around a real camera has not been seen.** This Mac has no notch, so only
+  the drawn notch was watched (above). The camera-housing layout (56 pt of compact beside the
+  camera, 80 pt for a pulse, truncated pulse text) and the choice of the built-in display when
+  it has a notch are assumed. Hover intent, first clicks on the panel and the click-through of
+  the transparent canvas (`ignoresMouseEvents` toggled on pointer moves) worked with synthetic
+  events; a real trackpad has not tried them. The surface is rebuilt on a screen-parameters
+  change only when the notch geometry changed, and a running timer carries over; neither has
+  been exercised. The hot key for the 25-minute timer is unassigned by default; without a
+  surface (no notch and `drawnNotch` off) it and `somabar://timer` only log a notice.
+  Expanded's Hidden items row follows the profile's `hiddenItemsTray` switch, which did
+  nothing before (checked in Focus, where it is off, and Everyday, where it is on).
 - **Show everything above N points** is applied in `effectiveLayout` (display rule first, then
   triggers, so a trigger's hide still wins) and unit-tested, but this display is 1920 pt wide,
   so it has never held. Dragging an item into Hidden by hand while it holds is learned into the
   file, but the rule then brings the item back into Shown.
 - **Groups (M9).** Model, editing and the keep-together rule are unit-tested (26 tests). Each
-  group gets its own status item; its position asks for the spot left of Somabar's glyph
-  through the undocumented "NSStatusItem Preferred Position" default, which is unconfirmed.
-  Without Accessibility the group glyphs may be scanned as unidentified items. Groups do not
-  show in the Items window; the glyph field saves on Return. Not seen: the glyph row, a
-  member's ⌘-drag pulling the group along, the Groups tab.
+  group gets its own status item, placed through the undocumented "NSStatusItem Preferred
+  Position" default (seen working, above). The glyph field saves on Return. Not seen: a
+  member's ⌘-drag pulling the group along, a letter glyph.
 - **Item hot keys.** Registered with the action hot keys through Carbon; clashes are checked
   both ways and unit-tested. Not seen: a real key press opening an item or group.
 - **Transfers.** A file-system event source on Downloads plus `Progress.addSubscriber`; a 1 s
@@ -246,11 +297,43 @@ driven the gestures.
   feedback sound. Not seen: that the tap suppresses the macOS 26 overlay, AirPods and HDMI.
 - **Agent activity.** A Unix socket (folder 0700, socket 0600, same-user peer with a valid
   signature, read-only) and `somabar://agent`, both off until "Listen for coding agents" is on.
-  Sessions expire after 10 min. The Allow/Deny reply path (P2 in the PRD, after review) is not
-  built. Not seen: a real Claude Code session through the hook script, "Show terminal".
+  Sessions expire after 10 min. The socket sits beside the layout file, so
+  `SOMABAR_DOCUMENT_DIR` moves it too. Not seen: a real Claude Code session through the hook
+  script, "Show terminal".
+- **Agent permission prompts (P2).** Off unless both "Listen for coding agents" and "Answer
+  permission prompts from the notch" (`agentReplies`, default false) are on. A hook sends
+  `{"request","session","tool","detail"}` on the socket and keeps the connection open; Somabar
+  writes one line `{"id","decision":"allow|deny|ask"}` to that connection and closes it.
+  `somabar://` never answers. "ask" (the agent asks in its terminal) on a 60 s timeout, "Answer
+  in terminal", the session finishing or ending, the switch off, a full queue (8, 4 per
+  session) and socket stop; the hook closing drops the prompt. The agent row lists the oldest
+  prompt per session (at most 2, then "and N more waiting") with Allow, Deny and Answer in
+  terminal; Allow is ignored for 1 s after a prompt appears and not offered where the profile
+  hides file names. `Sources/NotchKit/AgentPrompts.swift` (parsing, `AgentPromptQueue`),
+  `AgentSocketServer` request/reply, `AgentChannel`; `somabar-agent-hook.sh ask` prints Claude
+  Code's `PermissionRequest` (or `PreToolUse`) decision JSON, or nothing. Unit-tested; the hook
+  was run against the real `AgentSocketServer` outside the app (allow, deny, ask, switch off,
+  stop, hook killed). Not seen: a real Claude Code session, whether Claude Code shows its
+  terminal prompt while the hook waits, clicking the buttons in the notch.
+- **Release pipeline.** `SUFeedURL` and `SUPublicEDKey` come from `SPARKLE_FEED_URL` and
+  `SPARKLE_PUBLIC_ED_KEY` in `Config/Somabar.xcconfig`; the key is empty there and set only in
+  the untracked `Config/Release.local.xcconfig`, so builds from the tree keep updates off.
+  `make release` (`Scripts/release.sh`) makes a universal Release build without
+  `get-task-allow`; with `SOMABAR_SIGN_IDENTITY` it re-signs Sparkle's helpers, the framework
+  and the app with the Developer ID, hardened runtime and timestamps; with
+  `SOMABAR_NOTARY_PROFILE` it notarizes, staples and checks with `spctl`. It writes
+  `dist/<version>/updates/Somabar-<version>.zip` and a dmg, extends the published appcast with
+  `generate_appcast` (keychain key or `SPARKLE_ED_KEY_FILE`), refuses a build number that is
+  not newer, and checks the zip's EdDSA signature against the app's key with CryptoKit. Steps
+  without credentials are skipped with a note. `Scripts/sparkle-keys.sh` wraps `generate_keys`
+  (`--write`, `--print`, `--export`); `.github/workflows/release.yml` does the same on a `v*`
+  tag from secrets. Seen: an ad-hoc release with the key empty (no appcast, updater off), and
+  appcasts for 0.1.0 and 0.1.1 signed with a throwaway key file, both entries kept. Not seen:
+  `generate_keys`, Developer ID signing, notarization, stapling, a published appcast, the
+  workflow, an update end to end.
 - **Menu bar style (M13).** A click-through window per display just below the menu bar draws
-  the tint and hairline. Not seen: whether it shows through the macOS 26 bar and lines up, on
-  notched and external displays, and with auto-hide.
+  the tint and hairline; seen on this display (above). Not seen: notched and external
+  displays, auto-hide, the other styles than a tint.
 - **Call and Now Playing controls.** Mute uses the default input device's CoreAudio mute (it
   mutes every app) and is undone at call end; hang-up presses the call app's own menu item
   through Accessibility, never "End Meeting". The scrubber seeks through AppleScript; the
@@ -298,11 +381,19 @@ driven the gestures.
   macOS ever gate those reads, it will ask instead of ending the process.
 - **`SOMABAR_DOCUMENT_DIR`** points a copy of Somabar at another layout directory, which is how
   triggers were tested against a copy of the real file. Only one copy runs at a time either way.
+  It does not move the user defaults (`app.somabar.Somabar`: folded groups, group glyph
+  positions) or the agent socket, which stay the real app's.
+- **Synthetic input limits found on 2026-09-27.** A synthetic click on an item of a SwiftUI
+  context menu does not register (↓ and ↩ do); text typed right after a click into a SwiftUI
+  text field is lost until the field has focus. System Events reports the wrong frontmost app
+  for Somabar; `NSWorkspace.frontmostApplication` is right. A synthetic click left on the bar
+  keeps the pointer there, and the reconciler waits for it to leave.
 
 ## Not built yet
 
-Answering agent prompts from the notch (P2, pending review); a real Sparkle key and appcast
-(the tree ships with an empty `SUPublicEDKey`, so updates are off).
+Nothing in code. The owner still has to create the Sparkle key and the notary profile and
+publish a first appcast (README › Releasing); until then the tree ships an empty
+`SUPublicEDKey` and updates are off.
 
 The controller was split into `SomabarController+Reveal`, `+Scan` and `+Menu`; its class
 body is 216 lines.
@@ -317,14 +408,13 @@ body is 216 lines.
   Apps that build their menu only when clicked (Caffeine), macOS's own items and unidentified
   items show a note. `Sources/SomabarCore/MenuDrillDown.swift`,
   `Sources/BarEngine/StatusMenuReader.swift`, `App/SearchPaletteMenus.swift`; the shared panel
-  moved to `App/SomabarPanel.swift`. Reading was checked against CleanShot X and CodexBar
-  outside the app; key handling in the palette has not been run.
+  moved to `App/SomabarPanel.swift`. Key handling was run on 2026-09-27 (see *Verified*).
 - **Groups in the Items window.** Each section lists its groups under headers (glyph, name,
   count), members in bar order, then ungrouped items (`GroupedItems` in SomabarCore). Groups
   fold (kept in user defaults) and move to Shown, Hidden or Tucked from the header or the
   right-click menu: the layout changes, then the rescan and reconciler move the members.
   Right-clicking an item adds it to a group or a new group, or takes it out. Moves are disabled
-  without Accessibility access.
+  without Accessibility access. Run on 2026-09-27 (see *Verified*).
 - **One Expanded row per download.** Several downloads show a summary row and a line each
   (name, bytes and time left, bar, Show in Finder, Cancel when the `NSProgress` is
   cancellable), at most 4 then "and N more"; one download is the row itself.

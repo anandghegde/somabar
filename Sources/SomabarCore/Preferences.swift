@@ -120,6 +120,9 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var menuBarStyle = MenuBarStyle()
     /// N11: listen for coding agents on a local socket. Off by default (PRD security note).
     public var agentSocket = false
+    /// N11 (P2): answer agents' permission prompts from the notch. Separate from `agentSocket`,
+    /// off by default, and only in effect while the socket is on.
+    public var agentReplies = false
 
     public init() {}
 
@@ -135,7 +138,7 @@ public struct Preferences: Codable, Equatable, Sendable {
         case drawnNotch
         case notifyWhenTriggerFires
         case spacingNoticeShown
-        case menuBarStyle, agentSocket
+        case menuBarStyle, agentSocket, agentReplies
     }
 
     public init(from decoder: Decoder) throws {
@@ -158,5 +161,6 @@ public struct Preferences: Codable, Equatable, Sendable {
         spacingNoticeShown = try c.decodeIfPresent(Bool.self, forKey: .spacingNoticeShown) ?? defaults.spacingNoticeShown
         menuBarStyle = try c.decodeIfPresent(MenuBarStyle.self, forKey: .menuBarStyle) ?? defaults.menuBarStyle
         agentSocket = try c.decodeIfPresent(Bool.self, forKey: .agentSocket) ?? defaults.agentSocket
+        agentReplies = try c.decodeIfPresent(Bool.self, forKey: .agentReplies) ?? defaults.agentReplies
     }
 }

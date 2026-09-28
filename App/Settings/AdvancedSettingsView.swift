@@ -25,7 +25,7 @@ struct AdvancedSettingsView: View {
                 Toggle("Move items out from under the notch", isOn: $model.preferences.notchGuard)
                 Toggle("Notch surface", isOn: $model.preferences.notchSurface)
             }
-            AgentSettingsSection(isOn: $model.preferences.agentSocket)
+            AgentSettingsSection(isOn: $model.preferences.agentSocket, answersPrompts: $model.preferences.agentReplies)
             SwiftUI.Section("Triggers") {
                 Toggle("Notify when a trigger fires", isOn: Binding(
                     get: { model.preferences.notifyWhenTriggerFires },

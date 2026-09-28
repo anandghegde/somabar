@@ -36,7 +36,7 @@ extension SomabarController {
             log.info("Scan (\(reason, privacy: .public)) waits for the reconcile to end")
             return
         }
-        let found = await BarScanner.scan(ownFrames: engine.ownFrames)
+        let found = await BarScanner.scan(ownFrames: engine.ownFrames + groupGlyphFrames)
         items = found
         lastScan = Date()
         refreshItemImages()

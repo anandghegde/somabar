@@ -194,6 +194,10 @@ extension SomabarController {
                 self.scheduleScan(after: 0.6, reason: waiting)
             } else if outcome.moved > 0 || outcome.abandoned {
                 self.scheduleScan(after: 0.6, reason: "after reconcile")
+            } else if outcome.stoppedForInput {
+                // Nothing else may scan soon (a hidden bar, no new windows), so look again once
+                // the person has had a moment; the next pass waits for idle input again.
+                self.scheduleScan(after: 2, reason: "after waiting for input")
             }
             if wasRevealed, self.engine.isHiddenRevealed {
                 self.scheduleRehide()

@@ -101,8 +101,19 @@ Slice 2, "engine alpha". Somabar can:
   project with a button that brings the terminal forward. Reports go over
   `~/Library/Application Support/Somabar/agent.sock`, which only your user can reach, one
   JSON line each (`{"session": "…", "project": "…", "state": "working|needsYou|done|ended",
-  "detail": "…"}`), or `somabar://agent?session=…&state=…`. Somabar never answers an agent
-  or types into a terminal.
+  "detail": "…"}`), or `somabar://agent?session=…&state=…`.
+- Answer an agent's permission prompts from the notch (off by default). Turn on Settings ›
+  Advanced › Answer permission prompts as well, and keep the example's `PermissionRequest`
+  hook (`somabar-agent-hook.sh ask`). The hook sends `{"request": "id", "session": "…",
+  "tool": "Bash", "detail": "npm test"}` on the socket and keeps the connection open; the
+  agent's row lists the waiting prompt with Allow, Deny and Answer in terminal, the oldest of
+  each session first. Somabar writes back one line, `{"id": "…", "decision":
+  "allow|deny|ask"}`, and closes; the hook prints Claude Code's decision JSON for allow and
+  deny, and nothing otherwise. After 60 s, when the session finishes, when the hook goes away,
+  or with the switch off, the answer is "ask" and the agent asks in its terminal as usual.
+  Allow works only after a prompt has been up for a second, and is not offered in a profile
+  that hides file names. Only the socket can answer: `somabar://` links never do, and
+  Somabar never types into a terminal.
 - Tint the menu bar (Settings › General › Menu bar style): none, the system accent or a
   colour, at 10–100 %, with an optional 1 px hairline, set apart for light and dark mode. Off
   by default.
@@ -180,6 +191,7 @@ when something changes.
 | `displayRules.trayOnlyOnBuiltInDisplay` | true | Open the tray on the built-in display when there is one. |
 | `displayRules.leaveInactiveDisplaysUntouched` | true | Evaluate display rules against the display whose menu bar is active; off means the widest display. |
 | `agentSocket` | false | Listen for coding agents on the socket and `somabar://agent`. |
+| `agentReplies` | false | Let hooks wait on the socket for Allow or Deny from the notch; only while `agentSocket` is on. |
 | `menuBarStyle` | none | Tint colour, strength and hairline for light and dark mode. |
 
 Groups and item hot keys live at the top level of the layout file, beside `profiles`:
@@ -287,7 +299,7 @@ The glyph's menu shows which triggers hold under "Triggers". The log (below) has
 | `App/Updates` | Sparkle 2 updates and the Updates section in Settings. |
 | `App/Groups` | Group glyphs, the group row and hot key targets. |
 | `App/MenuBarStyle` | The menu bar tint window. |
-| `Scripts` | The coding-agent hook script and a Claude Code hooks example. |
+| `Scripts` | The coding-agent hook script and a Claude Code hooks example; the release and Sparkle key scripts. |
 
 Your layout lives in `~/Library/Application Support/Somabar/layout.somabar`. Set
 `SOMABAR_DOCUMENT_DIR` to run a copy against another directory, for instance to try triggers
@@ -302,21 +314,61 @@ on a copy of the file.
 
 ## Updates
 
-Somabar uses Sparkle 2 with EdDSA-signed appcasts. Local builds carry an empty
-`SUPublicEDKey`, so the updater never starts and "Check for Updates…" stays disabled with a
-note. To publish updates:
+Somabar uses Sparkle 2 with EdDSA-signed appcasts. `SUFeedURL` and `SUPublicEDKey` in
+Info.plist come from the build settings `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_ED_KEY` in
+`Config/Somabar.xcconfig`. The key is empty there, so a build from a plain checkout never
+starts the updater: "Check for Updates…" stays disabled with a note and nothing goes online.
+The key is set only in the untracked `Config/Release.local.xcconfig`.
 
-1. Run Sparkle's `generate_keys` once (for instance
-   `.build/xcode/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys`). It keeps the
-   private key in your login keychain and prints the public key.
-2. Paste the public key into `SUPublicEDKey` under `info.properties` in `project.yml` and run
-   `make app`.
-3. For each release, put the signed and notarized archive in a folder and run
-   `generate_appcast <folder>`. It signs the archive with the key from the keychain and writes
-   `appcast.xml`, with delta updates when older versions are in the folder.
-4. Upload the archive and `appcast.xml` as assets of the GitHub Release. `SUFeedURL` points at
-   `https://github.com/anandghegde/somabar/releases/latest/download/appcast.xml`, which always
-   resolves to the latest release.
+## Releasing
+
+`make release` (`Scripts/release.sh`) makes a Release build and writes to `dist/<version>/`:
+
+1. a Release build (universal) into `.build/xcode-release`, with the hardened runtime and
+   without `get-task-allow`;
+2. Developer ID signing, Sparkle's helpers inside out, then the app, with timestamps;
+3. notarization with `xcrun notarytool`, then stapling and a Gatekeeper check;
+4. `updates/Somabar-<version>.zip` (what Sparkle downloads) and `Somabar-<version>.dmg`,
+   itself signed, notarized and stapled;
+5. `updates/appcast.xml` from Sparkle's `generate_appcast`: the published appcast is
+   downloaded and extended, the new zip is signed with the EdDSA key, and the signature is
+   checked against the key inside the app. A copy goes to `dist/appcast.xml`.
+
+A step without its credentials is skipped with a note, so with nothing configured the script
+still produces an ad-hoc-signed zip and dmg to try, with updates off. Real errors stop it. It
+refuses to overwrite an existing `dist/<version>` and to publish a build number that is not
+newer than the newest one in the appcast: bump `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION` in `project.yml` for each release.
+
+One-time setup:
+
+1. `make sparkle-keys` (`Scripts/sparkle-keys.sh --write` to also save it) creates the EdDSA
+   key pair, keeps the private key in the login keychain and prints the public key. Put it in
+   `Config/Release.local.xcconfig` (copied from the `.example`) as `SPARKLE_PUBLIC_ED_KEY`.
+   Back the private key up with `Scripts/sparkle-keys.sh --export <file>`; without it,
+   installed copies can never be updated again.
+2. Copy `Config/release.local.env.example` to `Config/release.local.env` and set
+   `SOMABAR_SIGN_IDENTITY` to your "Developer ID Application: …" identity
+   (`security find-identity -v -p codesigning`).
+3. Store notary credentials once with
+   `xcrun notarytool store-credentials somabar-notary --apple-id <id> --team-id <team>`
+   (an app-specific password) and set `SOMABAR_NOTARY_PROFILE=somabar-notary`.
+
+Each release: bump the versions, commit, `make release`, then upload
+`updates/Somabar-<version>.zip`, `Somabar-<version>.dmg` and `updates/appcast.xml` to a GitHub
+Release tagged `v<version>` (the script prints the `gh release create` line, or runs it with
+`SOMABAR_PUBLISH=1`). `SUFeedURL` points at
+`https://github.com/anandghegde/somabar/releases/latest/download/appcast.xml`, which always
+resolves to the latest release, and each appcast entry points at its own tag's zip. Release
+notes: `SOMABAR_RELEASE_NOTES=notes.html` (or `.md`, `.txt`). Every setting is listed at the
+top of `Scripts/release.sh`.
+
+The script finds Sparkle's tools in the SwiftPM artifacts under `.build` or DerivedData, or
+downloads the release matching the resolved Sparkle version into `.build/sparkle-tools`.
+
+`.github/workflows/release.yml` does the same on a pushed `v*` tag, from repository secrets
+(the `.p12`, an App Store Connect API key and the exported Sparkle key) held in a throwaway
+keychain and the runner's temporary directory; the header of the workflow lists them.
 
 ## Logs
 

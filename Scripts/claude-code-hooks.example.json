@@ -6,6 +6,9 @@
     "PreToolUse": [
       { "matcher": "*", "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh working" }] }
     ],
+    "PermissionRequest": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh ask", "timeout": 90 }] }
+    ],
     "Notification": [
       { "hooks": [{ "type": "command", "command": "~/bin/somabar-agent-hook.sh needsYou" }] }
     ],

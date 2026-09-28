@@ -1,4 +1,5 @@
 import AppKit
+import BarEngine
 import os
 import SomabarCore
 
@@ -29,6 +30,13 @@ extension SomabarController {
             let statusItem = groupGlyphs[group.id] ?? makeGroupGlyph(for: group.id)
             style(statusItem, for: group)
         }
+    }
+
+    /// The group glyphs' frames, top-left origin. They are Somabar's own status items, so the
+    /// scan leaves them out as it does the glyph and the dividers; Accessibility cannot name them
+    /// (Somabar does not query itself), and they would otherwise show as unidentified items.
+    var groupGlyphFrames: [CGRect] {
+        groupGlyphs.values.compactMap { $0.button?.window?.frame }.map(ScreenGeometry.topLeft)
     }
 
     func removeGroupGlyphs() {

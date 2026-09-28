@@ -108,13 +108,15 @@ struct ActivityMenuView: View {
 // MARK: - Lines
 
 /// One item under a row that sums several up: a title, a detail, a thin progress bar, and its
-/// own controls (one download: Show in Finder, Cancel).
+/// own controls (one download: Show in Finder, Cancel; one agent prompt: Allow, Deny).
 struct ActivityLine: Identifiable {
     var id: String
     var title: String
     var detail: String
     var progress: Double?
     var controls: [ActivityControl] = []
+    /// The whole detail on hover, where one line cuts it (an agent's command).
+    var help: String?
 
     /// A line is as tall as its 44 pt controls; the footer is one line of small text.
     static let height: CGFloat = 44
@@ -130,9 +132,13 @@ extension ActivityRow {
         return ActivityLine.spacing + CGFloat(lines.count) * ActivityLine.height + footer
     }
 
-    /// The most any row's lines can add: Transfers' full list and its footer.
-    static let maxLinesHeight = ActivityLine.spacing + CGFloat(TransferLines.maxLines) * ActivityLine.height
-        + ActivityLine.footerHeight + ActivityLine.spacing
+    /// The most rows' lines can add: Transfers' full list and the agent's prompts, with footers,
+    /// since both can be in Expanded at once.
+    static let maxLinesHeight = linesBlockHeight(TransferLines.maxLines) + linesBlockHeight(AgentPromptText.maxLines)
+
+    private static func linesBlockHeight(_ lines: Int) -> CGFloat {
+        ActivityLine.spacing + CGFloat(lines) * ActivityLine.height + ActivityLine.footerHeight + ActivityLine.spacing
+    }
 }
 
 /// The lines under a row, indented to line up with its title.
@@ -182,7 +188,8 @@ struct ActivityLineView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(line.title), \(line.detail)")
+            .accessibilityLabel("\(line.title), \(line.help ?? line.detail)")
+            .help(line.help ?? "")
             ForEach(line.controls) { control in
                 Button(action: control.action) {
                     Image(systemName: control.symbol)

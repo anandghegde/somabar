@@ -42,6 +42,9 @@ extension SomabarController {
         if new.agentSocket != old.agentSocket {
             activities.agents.setListening(new.agentSocket)
         }
+        if new.agentReplies != old.agentReplies {
+            activities.agents.setReplies(new.agentReplies)
+        }
         if new.menuBarStyle != old.menuBarStyle {
             applyMenuBarStyle()
         }
