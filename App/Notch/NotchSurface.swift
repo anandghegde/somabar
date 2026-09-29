@@ -51,6 +51,8 @@ final class NotchSurface: NSObject {
     private var hasCompactActivity = false
     /// Compact is widened into the drop target (N5).
     private var widensCompact = false
+    /// What Expanded's content measured; nil until it has been drawn once.
+    private var measuredExpandedHeight: CGFloat?
 
     /// The surface for this screen, or nil when there is none to draw: the preference is off,
     /// or the display has no notch and the drawn one is off.
@@ -82,7 +84,8 @@ final class NotchSurface: NSObject {
             revealHidden: { [weak self] in self?.controller?.reveal(includingTucked: false) },
             startTimer: { [weak self] minutes in self?.startTimer(minutes: minutes) },
             cancelTimer: { [weak self] in self?.cancelTimer() },
-            togglePause: { [weak self] in self?.togglePause() }
+            togglePause: { [weak self] in self?.togglePause() },
+            expandedHeightChanged: { [weak self] height in self?.expandedContentMeasured(height) }
         )
     }
 
@@ -288,10 +291,23 @@ final class NotchSurface: NSObject {
         }
     }
 
-    /// Expanded as the model has it: its activity rows, and the Hidden items row when shown.
+    /// Expanded as the model has it: the height its content measured, else an estimate from its
+    /// activity rows and the Hidden items row when shown.
     private var expandedPanelSize: CGSize {
         let size = Self.expandedSize(rows: model.activities)
+        if let measuredExpandedHeight {
+            return CGSize(width: size.width, height: measuredExpandedHeight)
+        }
         return model.showsHidden ? size : CGSize(width: size.width, height: size.height - Self.hiddenRowHeight)
+    }
+
+    /// Refits Expanded when its content settles at a different height than the shape has.
+    private func expandedContentMeasured(_ height: CGFloat) {
+        guard height > 0, abs(height - (measuredExpandedHeight ?? 0)) >= 1 else { return }
+        measuredExpandedHeight = height
+        if machine.state == .expanded {
+            present()
+        }
     }
 
     /// Expanded with room for the rows it shows and their lines.

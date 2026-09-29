@@ -147,6 +147,11 @@ struct ExpandedView: View {
         .padding(.horizontal, 18)
         .padding(.top, model.cameraRect.maxY - model.shapeRect.minY + 8)
         .padding(.bottom, 12)
+        // The natural height, whatever the shape is right now, so the shape can fit it.
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            model.actions.expandedHeightChanged(height)
+        }
         .frame(width: model.shapeRect.width, alignment: .leading)
     }
 

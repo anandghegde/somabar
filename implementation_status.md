@@ -395,8 +395,14 @@ driven the gestures.
   published lines show percent, "of 20 MB", time left, a bar, Show in Finder and Cancel; the
   plain file shows only its size. Cancel reached the publishing process, which deleted its
   file, and the line went without a "Downloaded" pulse. Each finish was logged, including the
-  plain file about 3 s after its last write. The Expanded panel has about 40 pt of empty space
-  at the bottom with lines shown.
+  plain file about 3 s after its last write. Two more fixes on 2026-09-29:
+  - Expanded left about 40 pt empty at the bottom with lines shown, because its height was
+    summed from per-row estimates. `ExpandedView` now reports its measured height and the
+    shape fits it (`NotchSurface.expandedContentMeasured`); the estimate is only used before
+    the first draw. Three downloads with lines now end 12 pt under the Hidden items row.
+  - Finishes a few looks apart each got a pulse. `TransfersWatcher` holds them for 0.5 s
+    (`finishCoalesceSeconds`): three downloads finishing within 14 ms logged three finishes
+    and one "Downloaded · 3 files" pulse.
 - **Volume HUD.** CoreAudio listeners plus an event tap that consumes the volume keys when the
   activity is on, a notch surface exists and Accessibility is trusted; otherwise the keys pass
   through. The pulse lasts the machine's fixed 2 s, is dropped while Expanded, and plays no

@@ -47,4 +47,6 @@ struct NotchActions {
     var startTimer: (Int) -> Void = { _ in }
     var cancelTimer: () -> Void = {}
     var togglePause: () -> Void = {}
+    /// Expanded's content measured its natural height.
+    var expandedHeightChanged: (CGFloat) -> Void = { _ in }
 }

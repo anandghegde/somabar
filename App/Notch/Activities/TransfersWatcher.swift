@@ -29,10 +29,14 @@ final class TransfersWatcher {
     private var subscriber: Any?
     private let published = PublishedProgress()
     private var tickTask: Task<Void, Never>?
+    private var pendingFinishes: [TransferFinish] = []
+    private var finishTask: Task<Void, Never>?
     private var isStarted = false
     private var didLogReadError = false
     private let log = Logger(subsystem: "app.somabar", category: "activities")
 
+    /// Finishes this close together are reported as one, so a batch of downloads gets one pulse.
+    static let finishCoalesceSeconds = 0.5
     /// Plain files modified longer ago than this are only names to the tracker, not samples.
     static let recentSeconds = 60.0
     /// Safari's progress keys in a `.download` bundle's Info.plist.
@@ -71,6 +75,9 @@ final class TransfersWatcher {
         published.removeAll()
         tickTask?.cancel()
         tickTask = nil
+        finishTask?.cancel()
+        finishTask = nil
+        pendingFinishes = []
         tracker = TransferTracker()
         let hadLive = !live.isEmpty
         live = []
@@ -177,12 +184,26 @@ final class TransfersWatcher {
         live = next
         if !finishes.isEmpty {
             log.info("Transfers: \(finishes.count) finished")
-            onFinish?(finishes)
+            reportLater(finishes)
         }
         if changed {
             onChange?()
         }
         updateTick(now: now)
+    }
+
+    /// Holds finishes briefly so ones that land a few looks apart share a pulse.
+    private func reportLater(_ finishes: [TransferFinish]) {
+        pendingFinishes += finishes
+        finishTask?.cancel()
+        finishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.finishCoalesceSeconds))
+            guard !Task.isCancelled, let self, !self.pendingFinishes.isEmpty else { return }
+            let batch = self.pendingFinishes
+            self.pendingFinishes = []
+            self.finishTask = nil
+            self.onFinish?(batch)
+        }
     }
 
     private func updateTick(now: Double) {
