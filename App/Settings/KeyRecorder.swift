@@ -39,6 +39,7 @@ final class KeyRecorderButton: NSButton {
         didSet { updateTitle() }
     }
 
+    private var resignKeyObserver: NSObjectProtocol?
     private var isRecording = false {
         didSet {
             guard isRecording != oldValue else { return }
@@ -76,6 +77,31 @@ final class KeyRecorderButton: NSButton {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil { isRecording = false }
         super.viewWillMove(toWindow: newWindow)
+    }
+
+    /// Recording also ends when the window stops being key: another app came forward or the
+    /// window closed. The button keeps first responder then, and the hot keys would stay off
+    /// until Settings came back.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let resignKeyObserver {
+            NotificationCenter.default.removeObserver(resignKeyObserver)
+            self.resignKeyObserver = nil
+        }
+        guard let window else { return }
+        resignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stopRecording() }
+        }
+    }
+
+    private func stopRecording() {
+        guard isRecording else { return }
+        if window?.firstResponder === self {
+            window?.makeFirstResponder(nil)
+        }
+        isRecording = false
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

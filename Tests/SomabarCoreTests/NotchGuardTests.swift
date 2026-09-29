@@ -93,7 +93,7 @@ private let notchMaxX: CGFloat = 900  // a notch from 700 to 900 on a 1512 pt sc
 
     @Test func expandedIsCappedAndAnchoredToTheCamera() {
         let geometry = NotchGeometry(screenWidth: 1512, menuBarHeight: 38, notch: CGRect(x: 656, y: 0, width: 200, height: 38))
-        let frame = geometry.expandedFrame(size: CGSize(width: 900, height: 400))
+        let frame = geometry.expandedFrame(size: CGSize(width: 900, height: 900))
         #expect(frame?.size == NotchGeometry.maxExpandedSize)
         #expect(frame?.midX == 756)
         #expect(frame?.minY == 0)

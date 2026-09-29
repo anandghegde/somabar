@@ -11,8 +11,9 @@ public struct NotchGeometry: Equatable, Sendable {
     public var isDrawn: Bool
 
     public static let maxCompactExtensionPerSide: CGFloat = 80
-    /// Tall enough for the base panel and two live activity rows.
-    public static let maxExpandedSize = CGSize(width: 520, height: 300)
+    /// Tall enough for the base panel and two live activity rows with their lines: four
+    /// downloads and two agent prompts, each with a footer, need 600 pt.
+    public static let maxExpandedSize = CGSize(width: 520, height: 600)
     public static let drawnNotchSize = CGSize(width: 180, height: 32)
 
     public init(screenWidth: CGFloat, menuBarHeight: CGFloat, notch: CGRect?, isDrawn: Bool = false) {

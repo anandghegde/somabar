@@ -19,6 +19,13 @@ public struct RevealGestureRecognizer: Equatable, Sendable {
 
     /// Points of scroll, in one direction within the gap, that count as a gesture.
     public static let scrollThreshold: CGFloat = 20
+    /// A wheel without precise deltas reports lines, one per notch; three notches should reveal.
+    public static let pointsPerScrollLine: CGFloat = 8
+
+    /// Points for `scroll(deltaY:)`: trackpads and Magic Mouse report points, wheels lines.
+    public static func scrollPoints(deltaY: CGFloat, isPrecise: Bool) -> CGFloat {
+        isPrecise ? deltaY : deltaY * pointsPerScrollLine
+    }
     /// A pause longer than this between scroll events starts a new gesture.
     public static let scrollGapSeconds: TimeInterval = 0.4
     /// After a scroll gesture fires, further scrolling is ignored for this long.

@@ -55,6 +55,7 @@ extension SomabarController {
         suspendTriggers(for: sorted.movedByPerson)
 
         sorted.drifts += groupFollowerDrifts(followers, seen: seen)
+        sorted.drifts += overriddenDrifts(sorted.movedByPerson, seen: seen)
 
         let arrivals = document.insertNewItems(newKeys.filter { !managed.contains($0) })
         for key in arrivals where !adoptEverything {
@@ -88,6 +89,22 @@ extension SomabarController {
             guard let expected = wanted.section(of: key), let actual = seen.section(of: key), actual != expected else { return nil }
             return Drift(item: key, expected: expected, actual: actual)
         }
+    }
+
+    /// Items the person dragged and the layout learned, but that the display rule (M12) still
+    /// wants elsewhere: moved back in this pass rather than at whatever scan comes next.
+    private func overriddenDrifts(_ moved: [ItemKey], seen: Layout) -> [Drift] {
+        guard !moved.isEmpty else { return [] }
+        let wanted = effectiveLayout
+        let drifts = moved.compactMap { key -> Drift? in
+            guard let expected = wanted.section(of: key), let actual = seen.section(of: key), actual != expected else { return nil }
+            return Drift(item: key, expected: expected, actual: actual)
+        }
+        if !drifts.isEmpty {
+            let list = drifts.map(\.item.description).joined(separator: ", ")
+            log.notice("Learned, but the display rule keeps them in the bar: \(list, privacy: .public)")
+        }
+        return drifts
     }
 
     /// What the bar shows, split into learned moves (applied to the layout), unknown items, and drift.

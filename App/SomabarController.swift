@@ -222,5 +222,6 @@ final class SomabarController: NSObject, NSMenuDelegate {
     /// While Settings records a combo, Carbon must not swallow the keystroke.
     func suspendHotkeys() {
         hotkeys.unregisterAll()
+        log.notice("Hot keys off while Settings records a shortcut")
     }
 }

@@ -122,7 +122,8 @@ final class GestureMonitor {
             clickOnEmptyBar()
         case .scrollWheel:
             guard onBar else { return }
-            if let action = recognizer.scroll(deltaY: event.scrollingDeltaY, at: now, revealed: isRevealed()) {
+            let deltaY = RevealGestureRecognizer.scrollPoints(deltaY: event.scrollingDeltaY, isPrecise: event.hasPreciseScrollingDeltas)
+            if let action = recognizer.scroll(deltaY: deltaY, at: now, revealed: isRevealed()) {
                 fire(action, from: "scroll")
             }
         default:

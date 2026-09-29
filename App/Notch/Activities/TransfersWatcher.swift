@@ -132,11 +132,14 @@ final class TransfersWatcher {
 
     /// Progress published for any file in Downloads. The handlers run on a queue of
     /// Foundation's choosing; the store is locked and the look happens on the main actor.
+    /// When the handler runs, the proxy's `fileURL` is still nil (observed on macOS 26); the
+    /// URL is already in its user info.
     private func subscribe(to folder: URL) {
         let store = published
         let root = folder.standardizedFileURL.pathComponents
         subscriber = Progress.addSubscriber(forFileURL: folder) { progress in
-            guard let name = Self.entryName(of: progress.fileURL, under: root) else { return nil }
+            let url = progress.fileURL ?? progress.userInfo[.fileURLKey] as? URL
+            guard let name = Self.entryName(of: url, under: root) else { return nil }
             let token = store.add(progress, name: name)
             Self.wake()
             return {

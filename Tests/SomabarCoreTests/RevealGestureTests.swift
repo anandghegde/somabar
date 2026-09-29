@@ -112,6 +112,15 @@ import Testing
         #expect(r.scroll(deltaY: -8, at: 1.2, revealed: false) == .reveal)
     }
 
+    @Test func threeWheelNotchesReveal() {
+        var r = recognizer(scroll: true)
+        let notch = RevealGestureRecognizer.scrollPoints(deltaY: -1, isPrecise: false)
+        #expect(r.scroll(deltaY: notch, at: 1.0, revealed: false) == nil)
+        #expect(r.scroll(deltaY: notch, at: 1.1, revealed: false) == nil)
+        #expect(r.scroll(deltaY: notch, at: 1.2, revealed: false) == .reveal)
+        #expect(RevealGestureRecognizer.scrollPoints(deltaY: -1, isPrecise: true) == -1, "trackpad points stay as they are")
+    }
+
     @Test func scrollUpHidesOnlyWhenRevealed() {
         var r = recognizer(scroll: true)
         #expect(r.scroll(deltaY: 25, at: 1.0, revealed: false) == nil)
